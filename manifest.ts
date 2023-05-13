@@ -13,13 +13,8 @@ const manifest: chrome.runtime.ManifestV3 = {
     service_worker: "src/pages/background/index.js",
     type: "module",
   },
-  action: {
-    default_popup: "src/pages/popup/index.html",
-    default_icon: "icon-34.png",
-  },
-  chrome_url_overrides: {
-    newtab: "src/pages/newtab/index.html",
-  },
+  action: {},
+  permissions: ["activeTab", "declarativeContent", "storage"],
   icons: {
     "128": "icon-128.png",
   },

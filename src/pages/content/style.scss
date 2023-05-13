@@ -1,5 +1,23 @@
 @import "@assets/style/theme.scss";
 
-.content-view {
-  font-size: 30px;
+.commentarium-view {
+  position: fixed;
+  top: 0;
+  right: -27rem;
+  z-index: 2147483647;
+
+  width: 25rem;
+  max-width: calc(100% - 2rem);
+  height: calc(100vh - 2rem);
+
+  margin: 1rem;
+  border-radius: 0.8rem;  
+  background-color: #fff;
+  box-shadow: 0 0 1rem rgba(0, 0, 0, 0.2);
+
+  transition: right 0.3s ease-in-out;
+}
+
+.commentarium-view.open {  
+  right: 0;
 }

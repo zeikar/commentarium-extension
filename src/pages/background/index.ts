@@ -9,3 +9,9 @@ reloadOnUpdate("pages/background");
 reloadOnUpdate("pages/content/style.scss");
 
 console.log("background loaded");
+
+chrome.action.onClicked.addListener((tab) => {
+  const event = { type: "toggle", url: tab.url };
+  chrome.tabs.sendMessage(tab.id, event);
+  console.log("message sent", event);
+});
