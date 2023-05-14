@@ -1,11 +1,21 @@
 import { useState, useEffect } from "react";
+import IFrame from "../iframe";
 
 export default function App() {
   const [shown, setShown] = useState(false);
+  const [url, setUrl] = useState("");
 
-  function toggle() {
-    console.log("toggle");
+  function updatePage(url) {
+    console.log("toggle", shown, url);
     setShown((prevShown) => !prevShown);
+    setUrl(url);
+  }
+
+  function messageListener(msg, sender) {
+    console.log("content view message received", msg, sender);
+    if (msg.type === "toggle") {
+      updatePage(msg.url);
+    }
   }
 
   useEffect(() => {
@@ -20,18 +30,9 @@ export default function App() {
     };
   }, []);
 
-  function messageListener(msg, sender) {
-    console.log("content view message received", msg, sender);
-    if (msg.type === "toggle") {
-      toggle();
-    }
-  }
-
   return (
     <div className={`commentarium-view ${shown ? "open" : ""}`}>
-      {/* <iframe
-        src="https://commentarium.vercel.app/api/comments"
-      ></iframe> */}
+      <IFrame url={url} />
     </div>
   );
 }
