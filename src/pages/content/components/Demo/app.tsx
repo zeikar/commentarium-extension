@@ -6,7 +6,6 @@ export default function App() {
   const [url, setUrl] = useState("");
 
   function updatePage(url) {
-    console.log("toggle", shown, url);
     setShown((prevShown) => !prevShown);
     setUrl(url);
   }
@@ -15,6 +14,8 @@ export default function App() {
     console.log("content view message received", msg, sender);
     if (msg.type === "toggle") {
       updatePage(msg.url);
+    } else if (msg.type === "urlChange") {
+      setUrl(msg.url);
     }
   }
 

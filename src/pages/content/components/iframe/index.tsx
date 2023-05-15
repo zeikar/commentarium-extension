@@ -25,6 +25,7 @@ const IFrame: React.FC<IFrameProps> = ({ url }) => {
       {loading ? <div className="iframe-loading">Loading...</div> : null}
       <iframe
         className={"iframe-container" + (loading ? " hidden" : "")}
+        key={url}
         src={"http://localhost:3000/comments?url=" + url}
         onLoad={onLoad}
       ></iframe>
