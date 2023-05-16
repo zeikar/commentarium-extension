@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import IFrame from "../iframe";
+import Header from "./header";
 
 export default function App() {
   const [shown, setShown] = useState(false);
@@ -33,6 +34,7 @@ export default function App() {
 
   return (
     <div className={`commentarium-view ${shown ? "open" : ""}`}>
+      <Header onClick={() => setShown(false)} />
       <IFrame url={url} />
     </div>
   );
