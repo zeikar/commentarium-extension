@@ -15,8 +15,10 @@ const manifest: chrome.runtime.ManifestV3 = {
   },
   action: {},
   permissions: ["activeTab", "declarativeContent", "storage"],
-  icons: {
-    "128": "icon-128.png",
+  icons: {   
+    "32": "commentarium-logo-32.png",
+    "48": "commentarium-logo-48.png",
+    "128": "commentarium-logo-128.png",
   },
   content_scripts: [
     {
@@ -26,14 +28,13 @@ const manifest: chrome.runtime.ManifestV3 = {
       css: ["assets/css/contentStyle<KEY>.chunk.css"],
     },
   ],
-  devtools_page: "src/pages/devtools/index.html",
   web_accessible_resources: [
     {
       resources: [
         "assets/js/*.js",
         "assets/css/*.css",
-        "icon-128.png",
-        "icon-34.png",
+        "commentarium-logo-128.png",
+        "commentarium-logo-32.png",
       ],
       matches: ["*://*/*"],
     },
