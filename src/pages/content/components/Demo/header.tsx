@@ -1,7 +1,7 @@
 export default function Header({ onClick }) {
   return (
-    <div className="header">
-      <button className="close-button" onClick={onClick}>
+    <div className="commentarium-header">
+      <button className="commentarium-close-button" onClick={onClick}>
         <svg
           width="30px"
           height="30px"
