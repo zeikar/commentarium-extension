@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import Loading from "./loading";
 
 interface IFrameProps {
   url: string;
@@ -22,7 +23,7 @@ const IFrame: React.FC<IFrameProps> = ({ url }) => {
   }
   return (
     <>
-      {loading ? <div className="iframe-loading">Loading...</div> : null}
+      {loading ? Loading() : null}
       <iframe
         className={"iframe-container" + (loading ? " hidden" : "")}
         key={url}
