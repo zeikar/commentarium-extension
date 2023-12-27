@@ -3,10 +3,14 @@ import IFrame from "../iframe";
 import Header from "./header";
 
 export default function App() {
+  const [iframeRendered, setIframeRendered] = useState(false);
   const [shown, setShown] = useState(false);
   const [url, setUrl] = useState("");
 
   function updatePage(url) {
+    if (!iframeRendered) {
+      setIframeRendered(true);
+    }
     setShown((prevShown) => !prevShown);
     setUrl(url);
   }
@@ -35,7 +39,7 @@ export default function App() {
   return (
     <div className={`commentarium-view ${shown ? "open" : ""}`}>
       <Header onClick={() => setShown(false)} />
-      <IFrame url={url} />
+      {iframeRendered && <IFrame url={url} />}
     </div>
   );
 }

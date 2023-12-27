@@ -62,7 +62,8 @@
   flex-direction: row;
   justify-content: space-between;
   width: 100%;
-  padding: 8px;
+  max-width: 100%;
+  padding: 0.5rem 0rem;
   border-bottom: 1px solid #ccc;
 }
 
@@ -71,6 +72,7 @@
   border: none;
   cursor: pointer;
   outline: none;
+  padding-left: 0.5rem;
   width: 30px;
   height: 30px;
 }
