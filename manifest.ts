@@ -8,13 +8,12 @@ const manifest: chrome.runtime.ManifestV3 = {
   name: packageJson.name,
   version: packageJson.version,
   description: packageJson.description,
-  options_page: "src/pages/options/index.html",
   background: {
     service_worker: "src/pages/background/index.js",
     type: "module",
   },
   action: {},
-  permissions: ["activeTab", "declarativeContent", "storage"],
+  permissions: ["activeTab"],
   icons: {   
     "32": "commentarium-logo-32.png",
     "48": "commentarium-logo-48.png",
