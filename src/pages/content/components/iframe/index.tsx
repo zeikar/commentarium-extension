@@ -27,7 +27,7 @@ const IFrame: React.FC<IFrameProps> = ({ url }) => {
       <iframe
         className={"commentarium-iframe-container" + (loading ? " hidden" : "")}
         key={url}
-        src={"https://commentarium.vercel.app/comments?url=" + url}
+        src={"https://commentarium.vercel.app/comments?url=" + encodeURIComponent(url)}
         onLoad={onLoad}
       ></iframe>
     </>
