@@ -31,7 +31,7 @@
   height: 100%;
   overflow: hidden;
   border: 0;
-  border-radius: 0 0 12.8px 12.8px;
+  border-radius: 12.8px;
 }
 
 @keyframes spin {
@@ -58,21 +58,20 @@
 }
 
 .commentarium-header {
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
+  display: relative;
   width: 100%;
   max-width: 100%;
-  padding: 8px 0px;
-  border-bottom: 1px solid #ccc;
 }
 
 .commentarium-close-button {
+  position: absolute;
+  z-index: 2147483647;
+  margin: 8px 0 0 8px;
+
   background-color: transparent;
   border: none;
   cursor: pointer;
   outline: none;
-  padding-left: 8px;
   width: 30px;
   height: 30px;
 }
