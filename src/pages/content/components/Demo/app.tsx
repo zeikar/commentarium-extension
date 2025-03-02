@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import IFrame from "../iframe";
 import Header from "./header";
 
@@ -7,34 +7,47 @@ export default function App() {
   const [shown, setShown] = useState(false);
   const [url, setUrl] = useState("");
 
-  function updatePage(url) {
+  // Track current state with ref to prevent unnecessary function recreations
+  const shownRef = useRef(shown);
+
+  // Update ref whenever shown state changes
+  useEffect(() => {
+    shownRef.current = shown;
+  }, [shown]);
+
+  // Keep stable reference to updatePage function with empty deps
+  const updatePage = useCallback((newUrl: string) => {
     if (!iframeRendered) {
       setIframeRendered(true);
     }
     setShown((prevShown) => !prevShown);
-    setUrl(url);
-  }
+    setUrl(newUrl);
+  }, []);
 
-  function messageListener(msg, sender) {
+  // Message listener always references latest state through ref
+  const messageListener = useCallback((msg: any, sender: any) => {
     console.log("content view message received", msg, sender);
     if (msg.type === "toggle") {
       updatePage(msg.url);
     } else if (msg.type === "urlChange") {
-      setUrl(msg.url);
+      if (shownRef.current) {
+        // Always reference the latest shown value
+        setUrl(msg.url);
+      }
     }
-  }
+  }, []); // Empty dependency array
 
   useEffect(() => {
     console.log("content view loaded");
 
-    // Register the event listener
+    // Register the event listener only once
     chrome.runtime.onMessage.addListener(messageListener);
 
-    // Cleanup function to remove the event listener when the component unmounts
+    // Cleanup function
     return () => {
       chrome.runtime.onMessage.removeListener(messageListener);
     };
-  }, []);
+  }, []); // Empty dependency array - only runs on mount/unmount
 
   return (
     <div className={`commentarium-view ${shown ? "open" : ""}`}>
