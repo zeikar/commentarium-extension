@@ -1,7 +1,7 @@
 {
   "name": "Commentarium",
-  "version": "0.0.1",
-  "description": "Commentarium is a Chrome extension that allows you to add comments to any website.",
+  "version": "0.1.0",
+  "description": "💬 Commentarium: Rate, comment, and vote on any website. Make the web more interactive—join the conversation today!",
   "license": "MIT",
   "repository": {
     "type": "git",
