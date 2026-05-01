@@ -11,6 +11,8 @@ We considered a full migration to the new boilerplate. Decision (after Codex rev
 
 This spec covers the smallest sensible first step: clean up a broken baseline so subsequent dependency upgrades have honest CI signal and no dead code in the way.
 
+**Sequencing.** Substantive auth work is on the way — the companion app (`commentarium`) needs the extension to act as an auth broker for partitioned-cookie iframe login, which is the kind of code that needs real test coverage. Planned order: ① baseline cleanup (this spec) → ② Vite/Vitest upgrade → ③ auth broker work. Cleaning first means later upgrades land on a single-package-manager, no-dead-code baseline.
+
 ## Scope
 
 Five small, independent changes. Each commits separately.
