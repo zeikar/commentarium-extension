@@ -1,0 +1,87 @@
+# Development
+
+Build, load, iterate. The boilerplate handles most of this; the notes below are the parts you'll actually trip over.
+
+## Setup
+
+```bash
+npm install
+```
+
+No `.env` files — the extension talks only to `https://commentarium.app`, which is hard-coded in [iframe/index.tsx:30](../src/pages/content/components/iframe/index.tsx#L30). `package.json` doesn't pin `engines`; the boilerplate was authored against Node 18 (`@types/node@18`), which is a reasonable floor.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Starts the HMR reload websocket server **and** runs `vite build --watch` with `__DEV__=true`. Output is `dist/`, rebuilt on every save. |
+| `npm run build` | One-shot production build. Runs `tsc --noEmit` first, so type errors fail the build. |
+| `npm run build:watch` | Watch-mode build only (no reload server). Rarely needed directly. |
+| `npm run build:hmr` | Builds the HMR client bundle (`utils/reload/...`) once. `dev` runs this before starting the watcher. |
+| `npm run wss` | Starts the HMR reload websocket server only. Useful if you want to point a separate watcher at it. |
+| `npm test` | `jest` — currently one smoke test for [Demo/app.tsx](../src/pages/content/components/Demo/app.tsx). |
+
+## Loading the extension
+
+1. `npm run dev` (or `npm run build`).
+2. Chrome → `chrome://extensions` → enable **Developer mode**.
+3. **Load unpacked** → select the `dist/` folder.
+4. Pin the extension to the toolbar (puzzle-piece menu).
+5. Click the icon on any page — the panel should slide in from the right with `commentarium.app/comments?url=…` loaded in the iframe.
+
+## HMR — what reloads automatically vs. what doesn't
+
+The boilerplate's reload system (under `utils/reload/`) covers most of the custom surface, but Chrome extensions have hard limits on what can hot-reload.
+
+| Change | Reload behavior |
+|---|---|
+| Edit a content-script React component (e.g. `Demo/app.tsx`) | Auto-refresh: the page reloads and the new code mounts. |
+| Edit `content/style.scss` | Auto-reload — but the CSS filename is fingerprinted (`contentStyle<KEY>.chunk.css`), so the manifest is also rebuilt and the extension reloads. |
+| Edit `background/index.ts` | The service worker reloads. Existing tabs keep their old content script — to test, reload the tab. |
+| Edit `manifest.ts` | **Manual**: go to `chrome://extensions` and click the reload icon on the extension. The manifest itself can't hot-reload. |
+| Add a new permission to `manifest.ts` | Same as above — and Chrome may also require re-acceptance of permission warnings. |
+| Edit `vite.config.ts` or `utils/plugins/*` | Restart `npm run dev`. |
+
+If something looks wrong after a code change, the order to try is: (1) reload the page, (2) reload the extension at `chrome://extensions`, (3) restart `npm run dev`.
+
+## Project conventions
+
+### Path aliases
+
+Defined in [vite.config.ts](../vite.config.ts):
+
+| Alias | Resolves to |
+|---|---|
+| `@src` | `src/` |
+| `@assets` | `src/assets/` |
+| `@pages` | `src/pages/` |
+
+Use these in imports rather than relative `../../../` chains.
+
+### Content script can't import modules
+
+Chrome extensions don't load content scripts as ES modules. The workaround is in [src/pages/content/index.ts](../src/pages/content/index.ts):
+
+```ts
+import("./components/Demo");  // dynamic import — bundled into a single chunk
+```
+
+If you split the React entry into multiple top-level chunks, the dynamic-import boundary is also where vite splits — keep the entry as a single dynamic import.
+
+### CSS cache invalidation
+
+The content-script CSS is emitted as `assets/css/contentStyle<KEY>.chunk.css` where `<KEY>` is regenerated on every build (timestamp-based — see [vite.config.ts:80-88](../vite.config.ts#L80-L88)). The `<KEY>` is also injected into the manifest's `content_scripts[].css` field by `utils/plugins/make-manifest.ts`. This is the boilerplate's workaround for Chrome's aggressive CSS caching across extension reloads. Don't try to "stabilize" the filename.
+
+## Tests
+
+```bash
+npm test
+```
+
+`jest` + `@testing-library/react` + `jest-environment-jsdom`. There's currently one test ([Demo/app.test.tsx](../src/pages/content/components/Demo/app.test.tsx)) and it's a smoke test that's already failing semantically — it asserts the literal string `"content view"` appears in the rendered output, but the component doesn't render that text. **Treat the test suite as a placeholder**, not as coverage. If you start adding behavior worth covering, fix this test first.
+
+There is no test for `chrome.runtime.onMessage` wiring — `chrome.*` is undefined under jsdom, and the boilerplate doesn't ship a mock. Use the dev-load-unpacked flow for any messaging-related verification.
+
+## Releases
+
+No automated release pipeline is checked in. To ship: bump `version` in [package.json](../package.json) (it's read by [manifest.ts](../manifest.ts)), `npm run build`, and zip the contents of `dist/` for upload to the Chrome Web Store.
