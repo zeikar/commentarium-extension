@@ -22,7 +22,9 @@ with real test coverage from day one.
 
 ## Decision summary
 
-Settled in brainstorming:
+Settled in brainstorming. The post-review row (settings handoff) was added after the
+initial design surfaced a UX gap for extension-anonymous users hitting the settings
+page; see also "Out-of-band notes" at the bottom.
 
 | Question | Decision |
 |---|---|
@@ -30,8 +32,9 @@ Settled in brainstorming:
 | Auth backend | Firebase Auth is the canonical session. `chrome.identity.getAuthToken` is the Google credential adapter only. No offscreen documents. |
 | Extension UI | Transparent broker. No popup/options page. All sign-in UI stays in the iframed webapp. Action icon click still toggles the panel as today. |
 | Auto sign-in | None. Iframe shows the existing webapp sign-in modal when `currentUser === null`; user explicitly picks Google or Anonymous. |
-| Operations | Minimal set: `getCurrentUser`, `signIn.google`, `signIn.anonymous`, `signOut`, `getIdToken`, `stateChanged`. Upgrade/delete/reauth are out of scope — they operate via the webapp settings page, which opens in a 1st-party tab and is unaffected by partitioning. |
-| Transport (CS↔SW) | `chrome.runtime.sendMessage` (one-shot). Push from SW to all tabs with a registered relay. |
+| Broker operations | Minimal set: `getCurrentUser`, `signIn.google`, `signIn.anonymous`, `signOut`, `getIdToken`, plus the `stateChanged` push and the unified `response` envelope. Account ops (upgrade / delete / reauth) live 1st-party in the webapp settings page, reached via custom-token handoff (next row) — broker stays small. |
+| Settings handoff | When the iframe needs to open settings, it opens a new tab to `commentarium.app/auth/handoff` with a fresh broker-issued ID token in the URL fragment. Server exchanges the ID token for a 1st-party session cookie (unpartitioned) + custom token; the page calls `signInWithCustomToken` to establish 1st-party Firebase Auth state under the same UID. Anonymous UIDs survive the handoff. |
+| Transport (CS↔SW) | `chrome.runtime.sendMessage` (one-shot). `stateChanged` push is **best-effort** — webapp must also pull `getCurrentUser` on visibility change / focus / 401 for cross-tab consistency, since SW restart clears the in-memory tab set. |
 | Surface detection | Iframe URL gains `?surface=extension`. Webapp reads the query and switches to broker mode. |
 | Token refresh | Pull-based on demand (`getIdToken({ forceRefresh })`). `stateChanged` push carries user shape only — never the token. |
 
@@ -41,12 +44,18 @@ Settled in brainstorming:
 
 **Background service worker** (new module: `src/pages/background/auth.ts`).
 Owns the Firebase Auth instance built from `firebase/auth/web-extension`. Receives
-the six message types from content scripts. Calls
+the five request types from content scripts. Calls
 `chrome.identity.getAuthToken({ interactive: true })` only when handling
 `signIn.google`; the OAuth access token is exchanged via
 `signInWithCredential(auth, GoogleAuthProvider.credential(null, accessToken))`.
 Subscribes to `onIdTokenChanged`; on every fire (sign-in, sign-out, token rotation)
 broadcasts a `stateChanged` push.
+
+**Async-init contract**: every request handler `await`s `auth.authStateReady()`
+before reading `auth.currentUser`. Firebase's `web-extension` build restores
+persisted user from `chrome.storage.local` asynchronously after SW init/restart;
+reading `currentUser` before settlement returns `null` for an actually-signed-in
+user. This wait is cheap (resolves immediately once persistence is hydrated).
 
 Persistence: SW restarts pick up the existing user via Firebase's `web-extension`
 build, which uses `chrome.storage.local` automatically when that entrypoint is used.
@@ -61,7 +70,7 @@ Pure forwarder, mounted alongside the iframe element. Two listeners:
   `typeof event.data?.requestId === 'string'`. Forwards via `chrome.runtime.sendMessage`.
 - `chrome.runtime.onMessage.addListener(…)` — receives SW responses and pushes.
   Forwards to `iframeRef.current.contentWindow.postMessage(payload, 'https://commentarium.app')`,
-  guarded by `if (iframeRef.current)` so a closed-panel push is a silent no-op.
+  guarded by `if (iframeRef.current)` so a torn-down iframe is a silent no-op.
 
 Both listeners register once on mount with stable refs (per [CLAUDE.md](../../../CLAUDE.md)
 core rule #6 — same pattern the existing message listener in [Demo/app.tsx](../../../src/pages/content/components/Demo/app.tsx)
@@ -72,16 +81,30 @@ The existing iframe URL becomes
 `https://commentarium.app/comments?url=<encoded>&surface=extension`.
 The relay component mounts alongside the iframe and shares the iframe ref.
 
-**Webapp** (private repo, contract only). When `?surface=extension` is detected, the
-webapp routes its existing sign-in/sign-out UI through a `RemoteAuthAdapter` instead
-of the Firebase web SDK. The adapter posts `commentarium.auth.*` messages to
-`window.parent` (target origin `'*'` is acceptable on the iframe→parent direction
-because the parent is third-party and unknown to the webapp — the **content script**
-is the authoritative gate via origin+source verification on receive). On `/api/login`,
-the adapter sets header `X-Commentarium-Surface: extension`. Server reads the header
-and adds `Partitioned` to the `Set-Cookie` attributes (CHIPS), keeping
-`SameSite=None; Secure; HttpOnly`. 1st-party `/api/login` calls (without the header)
-keep the existing unpartitioned cookie path.
+**Webapp** (private repo, contract only). Two surfaces:
+
+- *Iframe surface (`?surface=extension`)*: webapp routes its existing sign-in/sign-out
+  UI through a `RemoteAuthAdapter` instead of the Firebase web SDK. The adapter posts
+  `commentarium.auth.*` messages to `window.parent` (target origin `'*'` is acceptable
+  on the iframe→parent direction because the parent is third-party and unknown to the
+  webapp — the **content script** is the authoritative gate via origin+source
+  verification on receive). On `/api/login`, the adapter sets header
+  `X-Commentarium-Surface: extension`. Server reads the header and adds `Partitioned`
+  to the `Set-Cookie` attributes (CHIPS), keeping `SameSite=None; Secure; HttpOnly`.
+  1st-party `/api/login` calls (without the header) keep the existing unpartitioned
+  cookie path. Settings link inside the iframe is rewritten to open the handoff URL
+  in a new tab (see next).
+- *Handoff surface (`/auth/handoff`)*: a new 1st-party page. Reads the ID token from
+  the URL fragment, immediately calls `history.replaceState` to clear the fragment,
+  POSTs to a new `/api/auth/exchange` endpoint with `Authorization: Bearer <idToken>`,
+  receives a custom token + a 1st-party session cookie (unpartitioned), then calls
+  `signInWithCustomToken(auth, customToken)` to establish 1st-party Firebase Auth
+  state under the same UID. Then redirects to `next` (default `/settings`).
+- *Server `/api/auth/exchange`* (new): verifies the ID token via
+  `auth.verifyIdToken`, sets a 1st-party session cookie (`SameSite=None; Secure;
+  HttpOnly`, no `Partitioned`), returns `{ customToken: await auth.createCustomToken(uid) }`.
+  Optional: register the ID token's `jti` in a short-lived single-use store to
+  prevent replay (cycle ③ ships without this; bracketed for cycle ④).
 
 ### File layout (extension repo)
 
@@ -90,32 +113,57 @@ New files:
 - `src/pages/background/firebase.ts` — Firebase config from env, `initializeApp` + `initializeAuth`
 - `src/pages/content/components/iframe/auth-relay.ts` — postMessage ↔ runtime relay
 - `.env.example` — documents required keys
-- `vite-env.d.ts` augmentation for `import.meta.env.VITE_FIREBASE_*` (or add to
-  existing `src/global.d.ts`)
+- `src/global.d.ts` augmentation for `import.meta.env.VITE_FIREBASE_*` and
+  `VITE_GOOGLE_OAUTH_CLIENT_ID`
 
 Modified:
 - [src/pages/background/index.ts](../../../src/pages/background/index.ts) — import auth module
 - [src/pages/content/components/iframe/index.tsx](../../../src/pages/content/components/iframe/index.tsx) — append `&surface=extension`, mount relay
-- [manifest.ts](../../../manifest.ts) — `identity` + `storage` permissions, `oauth2` block
+- [manifest.ts](../../../manifest.ts) — convert from static export to a `buildManifest(env)` function (see "Manifest & build configuration"); add `identity` + `storage` permissions, `oauth2` block
+- [vite.config.ts](../../../vite.config.ts) — wrap export in `defineConfig(({ mode }) => …)`, call `loadEnv(mode, process.cwd(), 'VITE_')`, pass env into the manifest plugin
 - `package.json` — add `firebase` dep
 - `.gitignore` — ensure `.env.local` is ignored (likely already covered by `.env*.local`)
 
 ## Message protocol
 
-All messages have `type` starting with `commentarium.auth.`. Request/response pairs
-carry a matching `requestId` (a `crypto.randomUUID()` string created by the iframe).
+### Envelope rules
+
+Every message has a `type` field starting with `commentarium.auth.`. Three categories:
+
+- **Request** — `type: "commentarium.auth.<op>"`, carries `requestId` (a
+  `crypto.randomUUID()` string created by the iframe).
+- **Response** — `type: "commentarium.auth.response"`, carries the same `requestId`,
+  plus exactly one of `data` or `error`.
+- **Push** — `type: "commentarium.auth.<event>"` (e.g. `stateChanged`), no
+  `requestId`.
+
+The relay (and the iframe receiver) filter inbound messages with one rule:
+`event.data?.type` starts with `commentarium.auth.`. The iframe correlates responses
+to pending requests by `requestId`. Pushes are dispatched by `type`.
+
 The relay does not generate or rewrite request IDs.
 
 ### Operations
 
-| Type | Direction | Request | Response |
+| Request type | Direction | Request payload | Response `data` (success) |
 |---|---|---|---|
-| `commentarium.auth.getCurrentUser` | iframe → SW | `{ requestId }` | `{ requestId, currentUser, idToken }` |
-| `commentarium.auth.signIn.google` | iframe → SW | `{ requestId }` | `{ requestId, currentUser, idToken }` or `{ requestId, error }` |
-| `commentarium.auth.signIn.anonymous` | iframe → SW | `{ requestId }` | `{ requestId, currentUser, idToken }` or `{ requestId, error }` |
-| `commentarium.auth.signOut` | iframe → SW | `{ requestId }` | `{ requestId, ok: true }` or `{ requestId, error }` |
-| `commentarium.auth.getIdToken` | iframe → SW | `{ requestId, forceRefresh?: boolean }` | `{ requestId, idToken }` or `{ requestId, error }` |
-| `commentarium.auth.stateChanged` | SW → iframe (push) | — | `{ currentUser }` |
+| `commentarium.auth.getCurrentUser` | iframe → SW | `{ type, requestId }` | `{ currentUser, idToken }` (`idToken` is `null` iff `currentUser` is `null`) |
+| `commentarium.auth.signIn.google` | iframe → SW | `{ type, requestId }` | `{ currentUser, idToken }` |
+| `commentarium.auth.signIn.anonymous` | iframe → SW | `{ type, requestId }` | `{ currentUser, idToken }` |
+| `commentarium.auth.signOut` | iframe → SW | `{ type, requestId }` | `{ ok: true }` |
+| `commentarium.auth.getIdToken` | iframe → SW | `{ type, requestId, forceRefresh?: boolean }` | `{ idToken }` |
+
+Every success response is wrapped:
+`{ type: "commentarium.auth.response", requestId, data: <table value> }`.
+
+Every error response: `{ type: "commentarium.auth.response", requestId, error: AuthError }` —
+mutually exclusive with `data`.
+
+Push:
+
+| Push type | Direction | Payload |
+|---|---|---|
+| `commentarium.auth.stateChanged` | SW → iframe | `{ type, currentUser }` |
 
 ### Shapes
 
@@ -132,15 +180,20 @@ type AuthError = {
   code: string;     // e.g. "auth/popup-closed-by-user", "identity/user-cancelled"
   message: string;  // human-readable
 };
+
+type AuthResponse =
+  | { type: "commentarium.auth.response"; requestId: string; data: object }
+  | { type: "commentarium.auth.response"; requestId: string; error: AuthError };
 ```
 
-**Why `idToken` is in `signIn.*`/`getCurrentUser` responses but not in `stateChanged`
-pushes**: pushes can race with concurrent token rotations, so a stale token in a push
-that arrives out-of-order would be hard to detect. The webapp pulling on demand
-(`getIdToken`) always gets a fresh token from the SW's authoritative state.
+**Why `idToken` is in `signIn.*` / `getCurrentUser` responses but not in
+`stateChanged` pushes**: pushes can race with concurrent token rotations, so a stale
+token in a push that arrives out-of-order would be hard to detect. The webapp pulling
+on demand (`getIdToken`) always gets a fresh token from the SW's authoritative state.
 
-**Error vs success fields are mutually exclusive**. The webapp's existing sign-in
-modal surfaces `error.message` directly when present.
+**`idToken: null` is explicit** in `getCurrentUser` responses when `currentUser` is
+`null` — keeping the response shape uniform across signed-in/signed-out states
+simplifies the webapp adapter.
 
 ### Transport
 
@@ -149,10 +202,16 @@ modal surfaces `error.message` directly when present.
   script verifies on receive. Content script → iframe target = the literal string
   `'https://commentarium.app'` (exact, never `'*'`, never read from `event.origin`).
 - **content script ↔ SW**: `chrome.runtime.sendMessage` with a callback for the
-  response. SW maintains a `Set<tabId>` of tabs that have sent any message — on push,
-  iterates the set and `chrome.tabs.sendMessage`s each, catching `Could not establish
-  connection` errors and removing dead tabIds. (SW does not actively register tabs;
-  it learns about them lazily via `sender.tab.id` on the first request from each.)
+  response. SW maintains a `Set<tabId>` of tabs that have sent any message (learned
+  lazily via `sender.tab.id` on each request). On `stateChanged`, SW iterates the
+  set and `chrome.tabs.sendMessage`s each, catching "Could not establish connection"
+  errors and removing dead tabIds.
+
+  **Push is best-effort.** The `Set<tabId>` lives in SW memory and clears on SW
+  restart; tabs whose panel was open before the restart receive nothing until they
+  next make a request. The webapp must therefore also pull `getCurrentUser` on
+  visibility change, focus, and 401 — push is an optimization, not a correctness
+  guarantee.
 
 ## Sequence flows
 
@@ -161,8 +220,9 @@ modal surfaces `error.message` directly when present.
 1. User clicks action icon → existing `toggle` message → panel slides in → iframe
    mounts with `?surface=extension`.
 2. Webapp loads, detects `surface=extension`, sends `getCurrentUser` to parent.
-3. Content script forwards to SW. SW reads Firebase `auth.currentUser` → `null`.
-4. SW responds `{ currentUser: null, idToken: null }`.
+3. Content script forwards to SW. SW handler `await`s `auth.authStateReady()`, then
+   reads `auth.currentUser` → `null`.
+4. SW responds with `{ data: { currentUser: null, idToken: null } }`.
 5. Webapp shows its existing sign-in modal.
 
 ### Sign in anonymously
@@ -170,7 +230,7 @@ modal surfaces `error.message` directly when present.
 1. User clicks "Continue Anonymously" → webapp sends `signIn.anonymous`.
 2. SW calls `signInAnonymously(auth)` → Firebase user created → `onIdTokenChanged`
    fires → SW broadcasts `stateChanged` push.
-3. SW responds to the original request with `{ currentUser, idToken }`.
+3. SW responds to the original request with `{ data: { currentUser, idToken } }`.
 4. Webapp posts `idToken` to `/api/login` with `Authorization: Bearer …` and
    `X-Commentarium-Surface: extension`.
 5. Server validates the ID token, creates session cookie with
@@ -184,16 +244,17 @@ modal surfaces `error.message` directly when present.
    native account chooser sheet (no popup window).
 3. SW builds `GoogleAuthProvider.credential(null, accessToken)` →
    `signInWithCredential(auth, credential)`.
-4. SW responds with `{ currentUser, idToken }`. Webapp does the `/api/login` step
-   exactly as in the anonymous flow.
+4. SW responds with `{ data: { currentUser, idToken } }`. Webapp does the
+   `/api/login` step exactly as in the anonymous flow.
 
 ### Token refresh
 
-1. Webapp's API client receives 401 (or detects ID token within ~60s of expiry, at
-   the webapp's discretion).
+1. Webapp's API client receives 401 (or proactively detects ID token within ~60s of
+   expiry, at the webapp's discretion).
 2. Webapp sends `getIdToken({ forceRefresh: true })`.
-3. SW calls `auth.currentUser.getIdToken(true)` → fresh token.
-4. SW responds `{ idToken }`.
+3. SW awaits `authStateReady`, calls `auth.currentUser.getIdToken(true)` → fresh
+   token.
+4. SW responds `{ data: { idToken } }`.
 5. Webapp retries the original request, and re-posts `/api/login` if the session
    cookie expired.
 
@@ -202,22 +263,52 @@ modal surfaces `error.message` directly when present.
 1. User clicks sign out → webapp sends `signOut`.
 2. SW calls `signOut(auth)` → `onIdTokenChanged` fires `null` → SW broadcasts
    `stateChanged` push.
-3. SW also calls `chrome.identity.removeCachedAuthToken({ token: lastAccessToken })`
-   to drop the cached Google OAuth token (otherwise the next `signIn.google` would
-   silently re-use the cached account without the chooser appearing).
-4. SW responds `{ ok: true }`.
-5. Webapp DELETEs its session-cookie endpoint to expire the session cookie.
+3. SW also calls `chrome.identity.clearAllCachedAuthTokens()` to drop Chrome's
+   OAuth token cache (otherwise the next `signIn.google` would silently re-use the
+   cached account without the chooser appearing). The extension uses one OAuth
+   client_id, so clearing all cached tokens is in-scope. The previously-issued
+   access token isn't tracked across SW restarts, so a token-specific
+   `removeCachedAuthToken` is unreliable here.
+4. SW responds `{ data: { ok: true } }`.
+5. Webapp DELETEs its session-cookie endpoint to expire the partitioned session
+   cookie.
+
+### Settings handoff
+
+1. User clicks "Settings" inside the iframe. The iframe's settings link, when in
+   extension surface, is wired to the handoff helper rather than `target="_blank"`
+   on `/settings`.
+2. Helper sends `getIdToken` (or reads a fresh one from the most recent successful
+   sign-in response — webapp choice).
+3. Helper opens a new tab via `window.open('https://commentarium.app/auth/handoff#token=<idToken>&next=/settings')`.
+4. Handoff page (1st-party):
+   - Reads the fragment, immediately calls `history.replaceState({}, '', location.pathname + location.search)` to clear it from history.
+   - `POST /api/auth/exchange` with `Authorization: Bearer <idToken>` and
+     `Content-Type: application/json`.
+   - Server: `auth.verifyIdToken(idToken)` → builds session cookie (1st-party,
+     unpartitioned, identical to existing 1st-party `/api/login`) → returns
+     `{ customToken: await auth.createCustomToken(uid) }`.
+   - Page: `signInWithCustomToken(auth, customToken)` → 1st-party Firebase Auth
+     state established under the same UID (anonymous or Google — preserved).
+   - Page: `router.replace(next)` (defaulting to `/settings` if missing).
+5. User lands on `/settings` fully signed in 1st-party. From here, the webapp's
+   existing `linkWithPopup`, `firebaseUser.delete()`, and reauth flows work
+   natively — no broker involvement.
 
 ### Cross-tab consistency
 
 Two tabs both have the panel open:
 
 - Tab A signs out via `signOut`.
-- SW's `onIdTokenChanged` fires → SW broadcasts `stateChanged` to both tabs.
+- SW's `onIdTokenChanged` fires → SW broadcasts `stateChanged` to tab A and tab B.
 - Both webapps receive `{ currentUser: null }` push and re-render to signed-out UI.
 - Each tab's session cookie is partitioned per top-level origin, so cookie-level
   cleanup happens per tab — the webapp's `stateChanged` handler triggers the
   session-cookie DELETE on its own tab.
+
+If the SW restarted between tab B's last interaction and tab A's sign-out, tab B is
+not in the `Set<tabId>` and gets no push. Tab B's webapp picks up the change on its
+next `getCurrentUser` pull (visibility change, focus, or first 401).
 
 ## Security model
 
@@ -254,8 +345,26 @@ for this extension's public key). `chrome.identity.getAuthToken({ interactive: t
 triggers the native Chrome sign-in sheet — no popup window, no iframe redirect. The
 returned access token is used exactly once per sign-in: to build a
 `GoogleAuthProvider.credential` and pass it to `signInWithCredential`. The access
-token is not stored or forwarded outside the SW; only the resulting Firebase ID
-token leaves.
+token is not persisted by us; only the resulting Firebase ID token leaves the SW. On
+sign-out, `chrome.identity.clearAllCachedAuthTokens()` clears Chrome's own cache
+(see "Sign out" flow).
+
+### Handoff fragment
+
+The handoff URL contains the ID token in the fragment (`#token=…`). Fragments do
+not get sent to servers, but they are visible to the page's scripts and persist in
+browser history. Mitigations:
+
+- Handoff page calls `history.replaceState({}, '', …)` as the first synchronous
+  action after parsing the fragment, removing the token from the visible URL and
+  the back/forward history entry.
+- The token is consumed within milliseconds — exchanged for a session cookie +
+  custom token, then the page redirects. Window of exposure ≪ token lifetime.
+- Firebase ID tokens are 1-hour and reusable. We accept that a leaked handoff URL
+  could be replayed within that window. Add server-side single-use replay protection
+  (jti registry) only if telemetry shows a need; cycle ④ candidate.
+
+This is the shape of the OAuth implicit flow — well-understood pattern.
 
 ### CSRF / origin allowlist on the webapp
 
@@ -266,6 +375,9 @@ extension surface, the request origin is `https://commentarium.app` (because the
 iframe IS at commentarium.app), so the existing allowlist already covers it — no
 allowlist changes needed for this cycle.
 
+The new `/api/auth/exchange` endpoint inherits the same CSRF middleware. Bearer-
+token verification on this endpoint is the actual auth check.
+
 ## Manifest & build configuration
 
 ### Manifest changes
@@ -273,21 +385,50 @@ allowlist changes needed for this cycle.
 ```ts
 permissions: ["activeTab", "identity", "storage"],
 oauth2: {
-  client_id: "<from VITE_GOOGLE_OAUTH_CLIENT_ID>",
+  client_id: env.VITE_GOOGLE_OAUTH_CLIENT_ID,
   scopes: ["openid", "email", "profile"],
 },
 ```
 
-- `identity`: required for `chrome.identity.getAuthToken`.
+- `identity`: required for `chrome.identity.getAuthToken` and
+  `chrome.identity.clearAllCachedAuthTokens`.
 - `storage`: Firebase Auth's `web-extension` build uses `chrome.storage.local` for
   user persistence. Without this permission the SDK falls back to in-memory and the
   user disappears across SW restarts.
 - `oauth2.client_id` is filled at build time from `VITE_GOOGLE_OAUTH_CLIENT_ID`.
-  `manifest.ts` is TS code executed by the manifest plugin (not browser code), so it
-  can read `process.env.*` directly. Throws at build if missing — fail-fast.
 - `host_permissions`: NOT added. The content script's `<all_urls>` match is
   unchanged. Cross-origin fetches from the iframe to commentarium.app go through
   the iframe's own origin, not the extension's.
+
+### Vite env loading
+
+Vite does **not** auto-populate `process.env.VITE_*` from `.env*` files at the
+config-evaluation stage (only `import.meta.env.*` inside browser code is auto-wired).
+[`manifest.ts`](../../../manifest.ts) is imported by [`vite.config.ts`](../../../vite.config.ts)
+during config evaluation, so it cannot rely on `process.env`. The pattern:
+
+```ts
+// vite.config.ts
+import { defineConfig, loadEnv } from "vite";
+import { buildManifest } from "./manifest";
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "VITE_");
+  return {
+    plugins: [
+      // …existing plugins…
+      makeManifestPlugin(buildManifest(env)),
+    ],
+    // …
+  };
+});
+```
+
+`manifest.ts` exports `buildManifest(env: Record<string, string>): chrome.runtime.ManifestV3`
+instead of a static default export. The function reads required keys from `env`,
+throws with a clear message if any are missing (including the OAuth client_id), and
+returns the manifest object. The throw is fail-fast — `npm run build` exits non-zero
+on missing env.
 
 ### Firebase configuration via env
 
@@ -300,9 +441,9 @@ repo.
 - `.env.local` (gitignored, dev-only): real values for local testing.
 - CI / release builds inject via repo secrets → `VITE_FIREBASE_*` and
   `VITE_GOOGLE_OAUTH_CLIENT_ID`.
-- `src/pages/background/firebase.ts` reads `import.meta.env.VITE_FIREBASE_*` and
-  initializes the Firebase app. Throws with a clear error if any required key is
-  missing.
+- `src/pages/background/firebase.ts` reads `import.meta.env.VITE_FIREBASE_*` (this
+  file IS browser code, so the auto-replace works) and initializes the Firebase
+  app. Throws with a clear error if any required key is missing.
 
 ### `firebase/auth/web-extension` import
 
@@ -317,7 +458,7 @@ import {
   signOut,
   onIdTokenChanged,
   GoogleAuthProvider,
-} from 'firebase/auth/web-extension';
+} from "firebase/auth/web-extension";
 ```
 
 The default `firebase/auth` entrypoint pulls in browser-only assumptions (popup,
@@ -334,9 +475,11 @@ spies as needed.
    with: wrong origin / right origin + wrong source / right both + wrong namespace /
    right both + right namespace + missing requestId / fully valid. Assert
    `chrome.runtime.sendMessage` was called only in the fully valid case.
-2. **SW handler routing** — mock the `firebase/auth/web-extension` module. Dispatch
-   each of the six operations to the SW message handler. Assert the correct Firebase
-   method is called and the response shape matches the protocol table.
+2. **SW handler routing** — mock the `firebase/auth/web-extension` module
+   (including `authStateReady` resolved-promise + `currentUser`). Dispatch each of
+   the five request operations. Assert the correct Firebase method is called and the
+   response shape matches the protocol table (envelope: `type:
+   "commentarium.auth.response"` + `requestId` + `data | error`).
 3. **Token refresh** — `getIdToken({ forceRefresh: true })` →
    `currentUser.getIdToken` called with `true`.
 4. **State push** — fire the mocked `onIdTokenChanged` callback → assert
@@ -344,13 +487,16 @@ spies as needed.
    `{ type: 'commentarium.auth.stateChanged', currentUser }` to known tabIds.
 5. **`requestId` roundtrip** — concurrent requests with different requestIds; verify
    no crosstalk in responses.
-6. **Sign-out cache cleanup** — assert `chrome.identity.removeCachedAuthToken` is
-   called with the previously-issued access token.
+6. **Sign-out cache cleanup** — assert `chrome.identity.clearAllCachedAuthTokens`
+   is called on the `signOut` path.
+7. **`authStateReady` wait** — handler that runs before `authStateReady` resolves
+   waits; once resolved, reads correct user.
 
 What this does NOT cover (deliberately):
 - Real Firebase Auth integration (no live Firebase project in tests).
 - Real `chrome.identity.getAuthToken` behavior.
-- Webapp-side adapter behavior (lives in the webapp repo).
+- Webapp-side adapter / handoff page / `/api/auth/exchange` (lives in the webapp
+  repo).
 - CHIPS cookie behavior (server-side; webapp repo).
 
 E2E manual verification:
@@ -363,33 +509,44 @@ E2E manual verification:
 - Switch to second site → comment posts succeed without re-prompting (single
   Firebase user behind both partitions).
 - Reload each tab → still signed in.
+- Sign in anonymously inside the iframe, click "Settings" → handoff opens new tab
+  → user lands on `/settings` signed in with the **same** anonymous UID as inside
+  the iframe (visible in account info), and `linkWithPopup` works there.
 
 ## Sequencing within cycle ③
 
 The implementation plan (next step, written via the `superpowers:writing-plans`
 skill) decides commit splitting. Conceptual work units, in dependency order:
 
-1. **Build/config scaffolding** — env loader, `.env.example`, `manifest.ts`
-   `oauth2` + permissions, `firebase` dep, `firebase.ts` config module. No
-   behavioral change yet; build still produces a working extension that ignores
-   the new config.
-2. **SW auth module** — Firebase init, message handler, six operations, push on
-   `onIdTokenChanged`. Unit-tested with mocked Firebase.
+1. **Build/config scaffolding** — env loader pattern in `vite.config.ts`,
+   `manifest.ts` → `buildManifest(env)`, `.env.example`, `firebase` dep,
+   `firebase.ts` config module. No behavioral change yet; build still produces a
+   working extension that ignores the new config.
+2. **SW auth module** — Firebase init, message handler, five request operations
+   with `authStateReady` wait, push on `onIdTokenChanged`, `clearAllCachedAuthTokens`
+   on sign-out. Unit-tested with mocked Firebase.
 3. **Content script relay** — window-message listener with origin/source gate,
    runtime relay, iframe URL `&surface=extension`, mount in iframe wrapper.
    Unit-tested with the chrome mock.
 4. **CI** — confirm `npm test` covers the new test files on Node 22 (already wired
    in cycle ②).
-5. **Manual E2E checklist** — load unpacked + 3rd-party-cookie-block test.
+5. **Manual E2E checklist** — load unpacked + 3rd-party-cookie-block test +
+   handoff happy-path on a signed-in iframe.
 
 The webapp repo gets a parallel set of work units, sequenced separately:
 
 - `RemoteAuthAdapter` module + `?surface=extension` detection.
 - Re-route sign-in modal / sign-out / API client through the adapter when in
   extension mode.
+- Settings link in extension surface → handoff URL helper.
+- New `/auth/handoff` page (token-from-fragment, history.replaceState, exchange,
+  signInWithCustomToken, redirect).
+- New `/api/auth/exchange` endpoint (verify ID token, set 1st-party session cookie,
+  return custom token).
 - `/api/login` server-side: read `X-Commentarium-Surface` header, add `Partitioned`
   to the response cookie when present.
-- Webapp tests for the adapter and the new server branch.
+- Webapp tests for the adapter, handoff page, exchange endpoint, and the
+  surface-aware `/api/login` branch.
 
 End-to-end activation: cycle ③ doesn't ship to users until BOTH repos have landed
 their changes and the webapp deploy is live. Until then the extension's
@@ -400,22 +557,22 @@ behavior stays the same until the webapp ships.
 
 ## Non-scope (explicit deferrals)
 
-- **Anonymous → Google upgrade in the iframe.** The webapp settings page opens in a
-  new tab (1st-party context, unaffected by partitioning), so the existing
-  `linkWithPopup` flow already works there. Brokering upgrade through the extension
-  would require additional protocol surface for marginal benefit. (Note: an
-  anonymous user signing in with Google through the extension surface signs in as a
-  fresh Google user, not link — their anonymous comments stay attached to the
-  abandoned anonymous UID. This is identical to current behavior; cycle ③ neither
-  fixes nor regresses it.)
-- **Account delete + reauthenticate.** Same reasoning — operates via settings new
-  tab.
+- **Brokered upgrade / delete / reauth in the iframe.** Settled by the handoff
+  approach: account ops happen 1st-party in the settings tab where Firebase Auth's
+  full popup-based flows already work. Brokering them through the extension would
+  duplicate functionality.
+- **Single-use replay protection on the handoff endpoint** (server-side `jti`
+  registry). Window of exposure for a leaked handoff URL is small; add only if
+  telemetry justifies. Cycle ④ candidate.
 - **Storage Access API fallback** (per webapp review #1). Acceptable to defer
   because the primary broker path covers the P0 case; SAA was always the secondary
   recommendation for "if extension bootstrap fails." Reconsider if telemetry shows
   broker-failure rates above a small threshold.
 - **Token caching in content script or iframe.** SW is the single source of truth;
   caches in lower layers introduce sync bugs.
+- **Persistent cross-tab push registry.** SW `Set<tabId>` is in-memory by design;
+  webapp must pull on visibility/focus for correctness. Persisting the registry
+  would couple SW startup to chrome.storage I/O for marginal benefit.
 - **React 18 → 19**, **ESLint 8 → 9**, **Prettier 2 → 3** — orthogonal, separate
   cycles.
 - **Permission/manifest minimalism beyond the two new ones.** `activeTab` +
@@ -426,7 +583,7 @@ behavior stays the same until the webapp ships.
 
 - **`firebase/auth/web-extension` API surface drift.** The web-extension entrypoint
   is documented and stable as of 2026-05, but it's a smaller-audience build. If
-  Firebase changes its persistence storage default or chrome.storage shape, our
+  Firebase changes its persistence-storage default or chrome.storage shape, our
   test mocks may need updating. Bundled into implementation.
 - **OAuth client_id key binding.** Chrome ties OAuth client_ids to extension public
   keys. Dev (unpacked) and prod (Web Store) extensions have different keys → can use
@@ -434,21 +591,26 @@ behavior stays the same until the webapp ships.
   Console for that client. Plan: register both. Fresh worktrees that generate new
   keys frequently are accepted as a one-time per-machine setup cost; doc note in
   development.md.
-- **Stale `stateChanged` pushes after panel close.** When the panel closes, the
-  iframe is removed but the content script + relay listener remain. SW push still
-  arrives; relay forwards to a non-existent iframe via the `if (iframeRef.current)`
-  guard — silent no-op.
+- **Iframe lifecycle on panel close.** The iframe is mounted on the first toggle
+  and stays in the DOM after panel close (just hidden via CSS — see
+  [Demo/app.tsx](../../../src/pages/content/components/Demo/app.tsx) and the
+  `key={url}` reload pattern in
+  [iframe/index.tsx](../../../src/pages/content/components/iframe/index.tsx#L29)).
+  SW pushes therefore reach the hidden iframe; the webapp updates its in-memory
+  state freely and the user sees fresh state on reopen.
 - **`chrome.tabs.sendMessage` to tabs without a registered listener** errors with
   "Could not establish connection". SW push wraps each send in try/catch and
-  removes dead tabIds from its known-tabs set on error. Common case: tabs that
-  haven't received the content script (chrome:// pages) or have it but never opened
-  the panel (so the relay was never mounted, but the tab might still be in the SW's
-  known-tabs set if it sent a `getCurrentUser` once).
+  removes dead tabIds from its known-tabs set. Common cases: tabs that haven't
+  received the content script (chrome:// pages), or tabs the user navigated to a
+  page where the content script is not yet bootstrapped.
+- **SW restart wipes the known-tabs set.** Mitigated by webapp pulling on
+  visibility/focus/401 (see Transport notes). Documented as a best-effort
+  guarantee.
 - **Build-time secrets in OSS repo.** `.env.local` is gitignored. CI uses repo
   secrets. Contributors who fork the repo need to register their own Firebase
-  project + OAuth client_id to test the auth path; both `manifest.ts` and
-  `firebase.ts` throw at build with a clear error message rather than silently
-  producing a broken extension.
+  project + OAuth client_id to test the auth path; both `manifest.ts`
+  (`buildManifest`) and `firebase.ts` throw at build / init with a clear error
+  message rather than silently producing a broken extension.
 
 ## Verification
 
@@ -465,6 +627,9 @@ After webapp commits land (parallel repo):
   storage with the `Partitioned` attribute.
 - `chrome.identity` Google sign-in sheet appears (not a popup window) when picking
   Google.
+- Iframe-anonymous user → "Settings" → new tab → `/settings` opens signed-in with
+  the same UID; `linkWithPopup` upgrade preserves the UID and surfaces in
+  account info.
 
 ## Out-of-band notes captured during brainstorming
 
@@ -475,9 +640,19 @@ After webapp commits land (parallel repo):
 - **No auto-anonymous bootstrap.** Anonymous remains an explicit choice in the
   webapp's existing sign-in modal. Rationale: avoids inflating the
   anonymous-account population with drive-by extension users who never engage.
-- **Operations scope cut.** Upgrade/delete deliberately deferred because webapp
-  settings is a new-tab (1st-party) flow. Cycle ③ stays focused on the
-  comment-iframe surface.
+- **Settings handoff (Plan D).** First draft of this spec deferred upgrade /
+  delete / reauth on the assumption that "settings opens in a new tab anyway." A
+  Codex review pointed out that extension-anonymous users have no 1st-party
+  Firebase Auth state, so a fresh settings tab would prompt them to sign in again
+  — losing their UID and comments. The handoff approach (custom-token exchange)
+  closes that gap with a small webapp-side addition (one page + one endpoint) and
+  zero new broker operations. The "in-iframe brokering of upgrade/delete" approach
+  was considered and rejected because it would force a narrow-panel responsive
+  redesign of the settings UI; the handoff keeps settings full-screen.
+- **Codex review feedback addressed inline.** Response envelope unification
+  (`commentarium.auth.response` + `data | error`), `authStateReady` wait,
+  best-effort push semantics, `clearAllCachedAuthTokens`, Vite `loadEnv` pattern,
+  iframe lifecycle facts — all incorporated into the relevant sections above.
 - **Push payload shape.** `stateChanged` carries `{ currentUser }` not
   `{ currentUser, idToken }` — pushes can race with concurrent token rotations,
   and the webapp pulling on demand is more correct than reconciling out-of-order
