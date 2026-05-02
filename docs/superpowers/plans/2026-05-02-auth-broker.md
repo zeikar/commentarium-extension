@@ -6,7 +6,7 @@
 
 **Architecture:** All auth work lives in the SW (`src/pages/background/auth.ts`). The webapp talks directly to the SW via `chrome.runtime.sendMessage(EXT_ID, …)` gated by `externally_connectable.matches`; no content-script relay. Partition keys come from `chrome.cookies.getPartitionKey({ tabId, frameId })` per request. A registry of written partitions lives in `chrome.storage.local` (one key per partition) so sign-out can clean up cookies the API does not enumerate by default. The iframe URL gains `&surface=extension`. Webapp-side changes (handoff page, `/api/auth/exchange`, `X-Commentarium-Surface` header on all `/api/*`) are out of scope for this plan — they live in the private webapp repo.
 
-**Tech Stack:** TypeScript 5.x, Vite 6, Vitest 4, jsdom, `firebase` (`firebase/auth/web-extension` entry), `@types/chrome ^0.1.40` plus a small ambient augmentation (`src/chrome-cookies-partition.d.ts`) for partitioned-cookie types not yet shipped on DefinitelyTyped (`partitionKey` field on `Cookie`/`SetDetails`/`Details`/`GetAllDetails`, `CookiePartitionKey` interface, `getPartitionKey()` function), Node 22, Chrome ≥132 (manifest `minimum_chrome_version`), MV3 service worker.
+**Tech Stack:** TypeScript 5.x, Vite 6, Vitest 4, jsdom, `firebase` (`firebase/auth/web-extension` entry), `@types/chrome ^0.1.40` (already ships partitioned-cookie types — `partitionKey` on `Cookie`/`SetDetails`/`CookieDetails`/`GetAllDetails`, `CookiePartitionKey` interface, `getPartitionKey()` — verified by grep against the installed declaration file; no augmentation needed), Node 22, Chrome ≥132 (manifest `minimum_chrome_version`), MV3 service worker.
 
 **Spec:** [docs/superpowers/specs/2026-05-02-auth-broker-design.md](../specs/2026-05-02-auth-broker-design.md)
 
@@ -20,7 +20,6 @@
 | `package-lock.json` | regenerated | Task 1 |
 | `.env.example` | create | Task 1 |
 | `.env.local` | create locally (gitignored) | Task 1 |
-| `src/chrome-cookies-partition.d.ts` | create — ambient augmentation for partitioned-cookie types | Task 1 |
 | `manifest.ts` | rewrite as `buildManifest(env)` function + new fields | Task 2 |
 | `vite.config.ts` | wrap export in `defineConfig(({ mode }) => …)`, call `loadEnv`, pass to manifest plugin | Task 2 |
 | `src/vite-env.d.ts` | create — `ImportMetaEnv` / `ImportMeta` typings (script-context ambient file) | Task 2 |
@@ -85,51 +84,22 @@ Expected: `firebase` appears under `dependencies` in [package.json](../../../pac
 Run: `node -e "console.log(require('./package.json').dependencies.firebase)"`
 Expected: prints a version string starting with `^` (e.g. `^11.x.x`). If undefined, move it manually from `devDependencies`.
 
-- [ ] **Step 2b: Add ambient augmentation for partitioned-cookie chrome types**
+- [ ] **Step 2b: Confirm `@types/chrome` already ships partitioned-cookie types**
 
-`@types/chrome ^0.1.40` (current latest on DefinitelyTyped — `npm view @types/chrome version` returns `0.1.40`) ships the basic `chrome.cookies` namespace (`Cookie`, `SetDetails`, `Details`, `getAll`, `set`, `remove`, `sameSite`) but does **not** yet ship the partitioned-cookie additions Chrome added in 117/132: the `partitionKey` field on existing interfaces, the `CookiePartitionKey` interface, and `chrome.cookies.getPartitionKey`. We add a small ambient declaration file that augments the namespace via TypeScript declaration merging.
+An earlier draft of this plan called for an ambient augmentation file (`src/chrome-cookies-partition.d.ts`) on the assumption that `@types/chrome ^0.1.40` was missing partitioned-cookie types. Code review during execution discovered the assumption was wrong — `@types/chrome 0.1.40` already ships:
+- `chrome.cookies.CookiePartitionKey` (with `topLevelSite?` and `hasCrossSiteAncestor?`)
+- `partitionKey?: CookiePartitionKey` on `Cookie`, `SetDetails`, `CookieDetails`, `GetAllDetails`
+- `chrome.cookies.getPartitionKey(details: FrameDetails): Promise<{ partitionKey }>`
 
-The file MUST have no top-level `import` or `export` (otherwise it becomes a module and the augmentation no longer reaches the global namespace).
+(One name to note: the type for the remove/get details object is `CookieDetails`, not `Details`.)
 
-Create [src/chrome-cookies-partition.d.ts](../../../src/chrome-cookies-partition.d.ts):
-
-```ts
-// Ambient augmentation for chrome.cookies partitioned-cookie types not yet
-// shipped on DefinitelyTyped (@types/chrome 0.1.40 is the latest as of
-// 2026-05). Drop this file once @types/chrome includes them.
-
-declare namespace chrome.cookies {
-  interface CookiePartitionKey {
-    topLevelSite?: string;
-    hasCrossSiteAncestor?: boolean;
-  }
-
-  // Declaration merging: the existing interfaces in @types/chrome are
-  // re-opened here with the partitioned-cookie field.
-  interface Cookie {
-    partitionKey?: CookiePartitionKey;
-  }
-  interface SetDetails {
-    partitionKey?: CookiePartitionKey;
-  }
-  interface Details {
-    partitionKey?: CookiePartitionKey;
-  }
-  interface GetAllDetails {
-    partitionKey?: CookiePartitionKey;
-  }
-
-  function getPartitionKey(details: {
-    tabId: number;
-    frameId: number;
-  }): Promise<{ partitionKey: CookiePartitionKey }>;
-}
+Verify locally:
+```bash
+grep -nE "CookiePartitionKey|partitionKey\??:|getPartitionKey" node_modules/@types/chrome/index.d.ts | head
 ```
+Expected: lines confirming `CookiePartitionKey`, `partitionKey?:` on each interface, and `getPartitionKey`. If any are missing (DefinitelyTyped landed a regression before you implement this), reintroduce a minimal augmentation only for the missing pieces.
 
-Verify the file is picked up by the TS program (it lives under `src/` which `tsconfig.json` includes by default):
-
-Run: `npm run build`
-Expected: `tsc --noEmit` passes. (No code uses the augmented types yet, so this confirms the augmentation does not itself break compilation.)
+No augmentation file is created. Move on.
 
 - [ ] **Step 3: Create `.env.example`**
 
@@ -174,26 +144,21 @@ Expected: exits 0. (No code uses the new env vars yet, so build does not depend 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add package.json package-lock.json .env.example src/chrome-cookies-partition.d.ts
+git add package.json package-lock.json .env.example
 git commit -m "$(cat <<'EOF'
-Add firebase dep + chrome cookies partition augmentation + env scaffolding
+Add firebase dep and env scaffolding for cycle ③ auth broker
 
 firebase enters as a runtime dependency (used by the service worker via
 firebase/auth/web-extension).
 
-@types/chrome 0.1.40 (current latest on DefinitelyTyped) ships the
-basic chrome.cookies namespace but does not yet ship the partitioned-
-cookie additions Chrome added in 117/132. src/chrome-cookies-partition.d.ts
-is an ambient declaration that augments chrome.cookies via TypeScript
-declaration merging: adds `partitionKey?: CookiePartitionKey` to
-Cookie / SetDetails / Details / GetAllDetails, and declares
-chrome.cookies.getPartitionKey. The file has no top-level imports/exports
-so the augmentation reaches the global namespace; remove it once
-DefinitelyTyped catches up.
-
 .env.example documents the four Firebase web-config keys plus the Chrome
 OAuth client_id; values flow through Vite's loadEnv into manifest.ts and
 the SW Firebase init in subsequent commits. .env.local stays gitignored.
+
+(@types/chrome 0.1.40 already ships the partitioned-cookie types we
+need — CookiePartitionKey, partitionKey on Cookie/SetDetails/CookieDetails/
+GetAllDetails, and getPartitionKey — so no ambient augmentation file is
+necessary. An earlier draft of the plan was wrong about this.)
 EOF
 )"
 ```
