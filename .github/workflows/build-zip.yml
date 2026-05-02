@@ -11,6 +11,17 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    env:
+      # Placeholder values so buildManifest validation passes in CI.
+      # Replace with repo secrets (vars.VITE_FIREBASE_*) once the auth broker
+      # ships end-to-end and real Firebase / OAuth credentials are needed for
+      # functional CI artifacts.
+      VITE_FIREBASE_API_KEY: ci-placeholder-api-key
+      VITE_FIREBASE_AUTH_DOMAIN: ci-placeholder.firebaseapp.com
+      VITE_FIREBASE_PROJECT_ID: ci-placeholder-project
+      VITE_FIREBASE_APP_ID: ci-placeholder-app-id
+      VITE_GOOGLE_OAUTH_CLIENT_ID: ci-placeholder.apps.googleusercontent.com
+
     steps:
       - uses: actions/checkout@v3
 

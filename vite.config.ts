@@ -20,8 +20,17 @@ const isProduction = !isDev;
 // ENABLE HMR IN BACKGROUND SCRIPT
 const enableHmrInBackgroundScript = true;
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), "VITE_");
+  const isBuild = command === "build";
+  const manifestPlugin = isBuild
+    ? [
+        makeManifest(buildManifest(env), {
+          isDev,
+          contentScriptCssKey: regenerateCacheInvalidationKey(),
+        }),
+      ]
+    : [];
   return {
     resolve: {
       alias: {
@@ -32,10 +41,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
-      makeManifest(buildManifest(env), {
-        isDev,
-        contentScriptCssKey: regenerateCacheInvalidationKey(),
-      }),
+      ...manifestPlugin,
       customDynamicImport(),
       addHmr({ background: enableHmrInBackgroundScript, view: true }),
     ],

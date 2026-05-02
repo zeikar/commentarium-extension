@@ -6,9 +6,14 @@ Build, load, iterate. The boilerplate handles most of this; the notes below are 
 
 ```bash
 npm install
+cp .env.example .env.local
+# fill in real Firebase web SDK config + Chrome OAuth client_id, or
+# use placeholder strings if you only need to verify build / test
 ```
 
-No `.env` files — the extension talks only to `https://commentarium.app`, which is hard-coded in [iframe/index.tsx:30](../src/pages/content/components/iframe/index.tsx#L30). Node 22 is required (`package.json` pins `engines.node = ">=22"`); CI runs on Node 22 to match.
+`npm run build` calls `buildManifest(env)` from [manifest.ts](../manifest.ts), which throws if `VITE_GOOGLE_OAUTH_CLIENT_ID` is missing. The four `VITE_FIREBASE_*` keys are validated at SW startup by [firebase.ts](../src/pages/background/firebase.ts) — placeholder strings are fine for build/test, but real values are needed for the loaded extension to actually authenticate against `commentarium.app`. `.env.local` is gitignored; CI sets placeholders in [build-zip.yml](../.github/workflows/build-zip.yml).
+
+Node 22 is required (`package.json` pins `engines.node = ">=22"`); CI runs on Node 22 to match.
 
 ## Commands
 
