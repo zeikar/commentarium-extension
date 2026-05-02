@@ -232,3 +232,86 @@ describe("signIn.google", () => {
     expect(chrome.storage.local.set).toHaveBeenCalledOnce();
   });
 });
+
+describe("refreshSession", () => {
+  it("happy path: forces ID token refresh, writes cookie, returns ok", async () => {
+    const firebase = await import("./firebase");
+    const getIdToken = vi.fn().mockResolvedValue("refreshed-id-token");
+    (firebase.auth as { currentUser: unknown }).currentUser = { uid: "user-x", getIdToken };
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ session: "refreshed-session", expiresAtSeconds: 1750000099 }),
+    }) as never;
+
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.refreshSession",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(getIdToken).toHaveBeenCalledWith(true); // force refresh
+    expect(chrome.cookies.set).toHaveBeenCalledOnce();
+    expect(chrome.storage.local.set).toHaveBeenCalledOnce();
+  });
+
+  it("user-gone: getIdToken(true) rejects → signOut + cookie cleanup + signedOut: true", async () => {
+    const firebase = await import("./firebase");
+    const getIdToken = vi
+      .fn()
+      .mockRejectedValue({ code: "auth/user-not-found", message: "user gone" });
+    (firebase.auth as { currentUser: unknown }).currentUser = { uid: "user-x", getIdToken };
+
+    // Pre-seed the registry so cleanup actually iterates entries
+    await chrome.storage.local.set({
+      "partitionRegistry:https://example.com|csa=1": {
+        topLevelSite: "https://example.com",
+        hasCrossSiteAncestor: true,
+      },
+    });
+    vi.mocked(chrome.storage.local.set).mockClear();
+
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.refreshSession",
+    });
+
+    expect(result).toMatchObject({
+      error: expect.objectContaining({ code: expect.stringMatching(/^auth\//) }),
+      signedOut: true,
+    });
+    expect(signOut).toHaveBeenCalledOnce();
+    expect(chrome.cookies.remove).toHaveBeenCalledTimes(1);
+    expect(chrome.identity.clearAllCachedAuthTokens).toHaveBeenCalledOnce();
+    // Registry was cleared
+    expect(chrome.storage.local.remove).toHaveBeenCalledOnce();
+  });
+
+  it("no current user: runs cleanup and returns signedOut: true", async () => {
+    const firebase = await import("./firebase");
+    (firebase.auth as { currentUser: unknown }).currentUser = null;
+
+    // Pre-seed the registry to verify cleanup actually happens — registry +
+    // partitioned cookies could persist from a prior session even when the
+    // Firebase user is gone.
+    await chrome.storage.local.set({
+      "partitionRegistry:https://example.com|csa=1": {
+        topLevelSite: "https://example.com",
+        hasCrossSiteAncestor: true,
+      },
+    });
+    vi.mocked(chrome.storage.local.set).mockClear();
+
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.refreshSession",
+    });
+
+    expect(result).toMatchObject({
+      error: expect.objectContaining({ code: "auth/no-current-user" }),
+      signedOut: true,
+    });
+    expect(chrome.cookies.set).not.toHaveBeenCalled();
+    // Cleanup: registry-driven cookie removal happened.
+    expect(chrome.cookies.remove).toHaveBeenCalledTimes(1);
+    expect(chrome.storage.local.remove).toHaveBeenCalledOnce();
+    expect(chrome.identity.clearAllCachedAuthTokens).toHaveBeenCalledOnce();
+  });
+});

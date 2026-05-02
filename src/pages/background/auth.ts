@@ -153,6 +153,8 @@ async function handle(
       return signInAnonymousOp(sender);
     case "commentarium.auth.signIn.google":
       return signInGoogleOp(sender);
+    case "commentarium.auth.refreshSession":
+      return refreshSessionOp(sender);
     default:
       return {
         error: {
@@ -218,6 +220,61 @@ async function signInGoogleOp(
     return { ok: true };
   } catch (err) {
     return { error: asAuthError(err) };
+  }
+}
+
+async function refreshSessionOp(
+  sender: chrome.runtime.MessageSender,
+): Promise<AuthResponse> {
+  if (!auth.currentUser) {
+    // Stale registry / partitioned cookies could outlive the Firebase user
+    // (e.g., user was cleared in another SW context but cookies in
+    // chrome.cookies + the registry are still around). Run the same cleanup
+    // path as a real sign-out so the response and the actual stored state
+    // match.
+    await performSignOutCleanup();
+    return {
+      error: { code: "auth/no-current-user", message: "no signed-in user" },
+      signedOut: true,
+    };
+  }
+  let idToken: string;
+  try {
+    idToken = await auth.currentUser.getIdToken(true);
+  } catch (err) {
+    await performSignOutCleanup();
+    return { error: asAuthError(err), signedOut: true };
+  }
+  try {
+    await mintAndWriteCookie({ idToken, sender });
+    return { ok: true };
+  } catch (err) {
+    return { error: asAuthError(err) };
+  }
+}
+
+async function performSignOutCleanup(): Promise<void> {
+  await firebaseSignOut(auth);
+  await chrome.identity.clearAllCachedAuthTokens();
+
+  const all = (await chrome.storage.local.get(null)) as Record<string, unknown>;
+  const registryKeys = Object.keys(all).filter((k) =>
+    k.startsWith("partitionRegistry:"),
+  );
+  for (const key of registryKeys) {
+    const partitionKey = all[key] as chrome.cookies.CookiePartitionKey;
+    try {
+      await chrome.cookies.remove({
+        url: COOKIE_URL,
+        name: COOKIE_NAME,
+        partitionKey,
+      });
+    } catch {
+      // Ignore — registry may have drifted (user manually cleared cookies).
+    }
+  }
+  if (registryKeys.length > 0) {
+    await chrome.storage.local.remove(registryKeys);
   }
 }
 
