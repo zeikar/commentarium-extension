@@ -157,6 +157,8 @@ async function handle(
       return refreshSessionOp(sender);
     case "commentarium.auth.signOut":
       return signOutOp();
+    case "commentarium.auth.getIdToken":
+      return getIdTokenOp();
     default:
       return {
         error: {
@@ -259,6 +261,23 @@ async function signOutOp(): Promise<AuthResponse> {
   try {
     await performSignOutCleanup();
     return { ok: true };
+  } catch (err) {
+    return { error: asAuthError(err) };
+  }
+}
+
+async function getIdTokenOp(): Promise<AuthResponse> {
+  if (!auth.currentUser) {
+    return {
+      error: {
+        code: "auth/no-current-user",
+        message: "no signed-in user",
+      },
+    };
+  }
+  try {
+    const idToken = await auth.currentUser.getIdToken(true);
+    return { idToken };
   } catch (err) {
     return { error: asAuthError(err) };
   }

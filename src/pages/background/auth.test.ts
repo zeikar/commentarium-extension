@@ -390,3 +390,43 @@ describe("signOut", () => {
     expect(chrome.storage.local.remove).not.toHaveBeenCalled();
   });
 });
+
+describe("getIdToken (handoff)", () => {
+  const HANDOFF_SENDER = {
+    url: "https://commentarium.app/auth/handoff?next=/settings",
+    origin: "https://commentarium.app",
+    tab: { id: 99 } as chrome.tabs.Tab,
+    frameId: 0,
+  };
+
+  it("returns a fresh ID token for the current Firebase user", async () => {
+    const firebase = await import("./firebase");
+    const getIdToken = vi.fn().mockResolvedValue("handoff-id-token");
+    (firebase.auth as { currentUser: unknown }).currentUser = {
+      uid: "anon-uid",
+      getIdToken,
+    };
+
+    const result = await dispatchExternalMessage(
+      { type: "commentarium.auth.getIdToken" },
+      HANDOFF_SENDER,
+    );
+
+    expect(result).toEqual({ idToken: "handoff-id-token" });
+    expect(getIdToken).toHaveBeenCalledWith(true); // force refresh
+  });
+
+  it("returns an error when no user is signed in", async () => {
+    const firebase = await import("./firebase");
+    (firebase.auth as { currentUser: unknown }).currentUser = null;
+
+    const result = await dispatchExternalMessage(
+      { type: "commentarium.auth.getIdToken" },
+      HANDOFF_SENDER,
+    );
+
+    expect(result).toMatchObject({
+      error: expect.objectContaining({ code: "auth/no-current-user" }),
+    });
+  });
+});
