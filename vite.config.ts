@@ -1,4 +1,5 @@
-import { defineConfig } from "vite";
+/// <reference types="vitest" />
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path, { resolve } from "path";
 import makeManifest from "./utils/plugins/make-manifest";
@@ -73,6 +74,11 @@ export default defineConfig({
         },
       },
     },
+  },
+  test: {
+    environment: "jsdom",
+    globals: false,
+    setupFiles: ["./test-utils/vitest.setup.ts"],
   },
 });
 
