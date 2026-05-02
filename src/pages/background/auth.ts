@@ -284,9 +284,30 @@ async function getIdTokenOp(): Promise<AuthResponse> {
 }
 
 async function performSignOutCleanup(): Promise<void> {
-  await firebaseSignOut(auth);
-  await chrome.identity.clearAllCachedAuthTokens();
+  let bestEffortError: unknown;
 
+  // Best-effort: clear in-memory Firebase user state. A failure here
+  // (transient SDK error, etc.) MUST NOT block the cookie cleanup below —
+  // the cookie is the source of truth for the iframe's signed-in state.
+  try {
+    await firebaseSignOut(auth);
+  } catch (err) {
+    bestEffortError = err;
+  }
+
+  // Best-effort: clear Chrome's OAuth-token cache so the next signIn.google
+  // shows the chooser. A failure here is cosmetic, never security-critical.
+  try {
+    await chrome.identity.clearAllCachedAuthTokens();
+  } catch (err) {
+    // Prefer the first error if both fail; cosmetic anyway.
+    bestEffortError ??= err;
+  }
+
+  // Critical (security): remove every partitioned session cookie this
+  // extension wrote, then clear the registry. Errors on individual cookie
+  // removes are non-fatal (registry can drift), but unwritten cookies must
+  // never persist past this call.
   const all = (await chrome.storage.local.get(null)) as Record<string, unknown>;
   const registryKeys = Object.keys(all).filter((k) =>
     k.startsWith("partitionRegistry:"),
@@ -306,6 +327,10 @@ async function performSignOutCleanup(): Promise<void> {
   if (registryKeys.length > 0) {
     await chrome.storage.local.remove(registryKeys);
   }
+
+  // Surface the original best-effort error so signOutOp reports it. Cookie
+  // cleanup already ran above, so this throw doesn't compromise security.
+  if (bestEffortError) throw bestEffortError;
 }
 
 export {};

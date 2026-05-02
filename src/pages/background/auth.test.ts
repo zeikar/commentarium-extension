@@ -389,6 +389,42 @@ describe("signOut", () => {
     expect(chrome.cookies.remove).not.toHaveBeenCalled();
     expect(chrome.storage.local.remove).not.toHaveBeenCalled();
   });
+
+  it("clears partitioned cookies even when firebaseSignOut throws", async () => {
+    const firebase = await import("./firebase");
+    (firebase.auth as { currentUser: unknown }).currentUser = { uid: "x" };
+
+    await chrome.storage.local.set({
+      "partitionRegistry:https://example.com|csa=1": {
+        topLevelSite: "https://example.com",
+        hasCrossSiteAncestor: true,
+      },
+      "partitionRegistry:https://other.example|csa=1": {
+        topLevelSite: "https://other.example",
+        hasCrossSiteAncestor: true,
+      },
+    });
+    vi.mocked(chrome.storage.local.set).mockClear();
+
+    // Simulate Firebase signOut crashing — registry-driven cookie cleanup
+    // is the security-critical step and MUST still run.
+    vi.mocked(signOut).mockRejectedValueOnce(
+      new Error("firebase signOut transient failure"),
+    );
+
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.signOut",
+    });
+
+    // Op response surfaces the error.
+    expect(result).toMatchObject({
+      error: expect.objectContaining({ code: expect.stringMatching(/^auth\//) }),
+    });
+
+    // But cookie cleanup STILL ran.
+    expect(chrome.cookies.remove).toHaveBeenCalledTimes(2);
+    expect(chrome.storage.local.remove).toHaveBeenCalledOnce();
+  });
 });
 
 describe("getIdToken (handoff)", () => {
