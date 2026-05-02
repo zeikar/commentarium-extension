@@ -74,8 +74,8 @@ The content-script CSS is emitted as `assets/css/contentStyle<KEY>.chunk.css` wh
 ## Tests
 
 ```bash
-npm test          # vitest run — one-shot, what CI runs
-npm test:watch    # vitest watch mode
+npm test              # vitest run — one-shot, what CI runs
+npm run test:watch    # vitest watch mode
 ```
 
 Vitest 4 + jsdom + `@testing-library/react`. The chrome-runtime mock lives in [test-utils/vitest.setup.ts](../test-utils/vitest.setup.ts) — it stubs `chrome.runtime.onMessage.{addListener, removeListener}` with `vi.fn()` spies and exports `dispatchChromeMessage(msg, sender)` to synthesize a runtime message into the captured listeners. Extend that file (don't recreate the chrome global per test) when you need broader chrome surface.
