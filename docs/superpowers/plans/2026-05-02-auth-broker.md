@@ -1170,6 +1170,34 @@ describe("signIn.anonymous", () => {
     expect(chrome.cookies.set).not.toHaveBeenCalled();
     expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
+
+  it("surfaces auth/cookie-write-failed when chrome.cookies.set returns null", async () => {
+    const firebase = await import("./firebase");
+    const getIdToken = vi.fn().mockResolvedValue("fixture-id-token");
+    (firebase.auth as { currentUser: unknown }).currentUser = null;
+    vi.mocked(signInAnonymously).mockImplementation(async () => {
+      (firebase.auth as { currentUser: unknown }).currentUser = { uid: "anon", getIdToken };
+      return { user: { uid: "anon" } } as never;
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ session: "x", expiresAtSeconds: 1750000000 }),
+    }) as never;
+    // chrome.cookies.set resolves to null (Chrome's documented failure shape:
+    // no exception, just no Cookie returned).
+    vi.mocked(chrome.cookies.set).mockResolvedValueOnce(null as never);
+
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.signIn.anonymous",
+    });
+
+    expect(result).toMatchObject({
+      error: expect.objectContaining({ code: "auth/cookie-write-failed" }),
+    });
+    // Registry MUST NOT be written when the cookie itself wasn't persisted —
+    // a phantom registry entry would mislead sign-out cleanup.
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+  });
 });
 ```
 
@@ -1495,9 +1523,14 @@ git commit -m "Implement signIn.google broker op (chrome.identity + signInWithCr
 
 ---
 
-### Task 8: `refreshSession` handler — happy path + user-gone path
+### Task 8: `refreshSession` handler — three branches
 
-**Why:** The webapp calls `refreshSession` on cold start (with broker user but no partitioned cookie for this site) and on every 401. Two distinct outcomes: success → `{ ok: true }`; user gone → trigger sign-out cleanup and respond `{ error, signedOut: true }`.
+**Why:** The webapp calls `refreshSession` on cold start (with broker user but no partitioned cookie for this site) and on every 401. Three outcomes:
+- `currentUser` is null → run shared sign-out cleanup so any stale registry / partitioned cookies are cleared, respond `{ error: { code: "auth/no-current-user" }, signedOut: true }`.
+- `getIdToken(true)` succeeds → mint cookie, respond `{ ok: true }`.
+- `getIdToken(true)` rejects (user deleted server-side or otherwise gone) → run shared sign-out cleanup, respond `{ error, signedOut: true }`.
+
+All three branches leave registry / cookie state coherent with the response.
 
 **Files:**
 - Modify: `src/pages/background/auth.test.ts`

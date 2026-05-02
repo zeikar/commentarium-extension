@@ -164,7 +164,7 @@ commentarium.app:
 
 New files:
 - `src/pages/background/auth.ts` — message handler + Firebase Auth + chrome.cookies (partition key resolved per request via `chrome.cookies.getPartitionKey({ tabId, frameId })` from `sender.*`)
-- `src/pages/background/firebase.ts` — Firebase config from env, `initializeApp` + `initializeAuth`
+- `src/pages/background/firebase.ts` — Firebase config from env, `initializeApp` + `getAuth` (the `firebase/auth/web-extension` build's `getAuth` wires the platform's default persistence; `initializeAuth(app)` without an explicit `persistence` arg would degrade to in-memory and break SW-restart user retention)
 - `.env.example` — documents required keys
 - `src/global.d.ts` augmentation (or new file) for `import.meta.env.VITE_FIREBASE_*` and `VITE_GOOGLE_OAUTH_CLIENT_ID`
 
@@ -607,13 +607,21 @@ The SW imports from there instead of the default `firebase/auth`:
 
 ```ts
 import {
-  initializeAuth,
+  getAuth,
   signInAnonymously,
   signInWithCredential,
   signOut,
   GoogleAuthProvider,
 } from "firebase/auth/web-extension";
 ```
+
+`firebase.ts` initializes via `getAuth(app)` — not `initializeAuth(app)`
+without deps. `getAuth` is the documented entry point for the
+web-extension build and wires the platform's default persistence
+(`indexedDBLocalPersistence`, which survives SW restarts on MV3).
+`initializeAuth(app)` called without an explicit `persistence` argument
+bypasses that default and degrades to in-memory, breaking SW-restart and
+browser-restart user retention.
 
 (`onIdTokenChanged` is not imported because we do not push state changes in
 cycle ③.)
