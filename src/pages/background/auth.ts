@@ -151,6 +151,8 @@ async function handle(
   switch (type) {
     case "commentarium.auth.signIn.anonymous":
       return signInAnonymousOp(sender);
+    case "commentarium.auth.signIn.google":
+      return signInGoogleOp(sender);
     default:
       return {
         error: {
@@ -171,6 +173,43 @@ async function signInAnonymousOp(
         error: {
           code: "auth/no-current-user",
           message: "signInAnonymously did not produce a user",
+        },
+      };
+    }
+    const idToken = await auth.currentUser.getIdToken();
+    await mintAndWriteCookie({ idToken, sender });
+    return { ok: true };
+  } catch (err) {
+    return { error: asAuthError(err) };
+  }
+}
+
+async function signInGoogleOp(
+  sender: chrome.runtime.MessageSender,
+): Promise<AuthResponse> {
+  try {
+    // The Promise form of chrome.identity.getAuthToken returns a
+    // GetAuthTokenResult object, not a bare string. The string is the legacy
+    // callback-API shape. Extract .token explicitly.
+    const tokenResult = await chrome.identity.getAuthToken({
+      interactive: true,
+    });
+    const accessToken = tokenResult?.token;
+    if (!accessToken) {
+      return {
+        error: {
+          code: "identity/no-token",
+          message: "chrome.identity.getAuthToken returned no token",
+        },
+      };
+    }
+    const credential = GoogleAuthProvider.credential(null, accessToken);
+    await signInWithCredential(auth, credential);
+    if (!auth.currentUser) {
+      return {
+        error: {
+          code: "auth/no-current-user",
+          message: "signInWithCredential did not produce a user",
         },
       };
     }
