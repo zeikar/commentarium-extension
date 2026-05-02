@@ -27,7 +27,6 @@ Built on [chrome-extension-boilerplate-react-vite](https://github.com/Jonghakseo
 - Content scripts can't use ES modules, so [content/index.ts](src/pages/content/index.ts) uses dynamic `import("./components/Demo")` to load the React entry.
 - The CSS is fingerprinted (`contentStyle<KEY>.chunk.css`) for cache invalidation — if you rename the entry, update the manifest match in [manifest.ts](manifest.ts) and the rollup output rule in [vite.config.ts](vite.config.ts).
 - After editing [manifest.ts](manifest.ts) you must reload the extension at `chrome://extensions` (HMR doesn't cover the manifest).
-- The options page is wired up in source ([src/pages/options/](src/pages/options/)) but **not registered in the manifest** — it's a stub left over from the boilerplate. If you actually need an options page, add `options_page` (or `options_ui`) to [manifest.ts](manifest.ts) and add the input back to [vite.config.ts](vite.config.ts) (currently commented out).
 
 ## Code style
 
@@ -35,13 +34,12 @@ Built on [chrome-extension-boilerplate-react-vite](https://github.com/Jonghakseo
 - **File size**: aim for under ~500 lines per file. The whole custom surface fits well under this; if a single file is approaching it, the split is probably wrong.
 - Match the existing terse style — this is a thin wrapper, not a framework.
 
-## Build / test
+## Build / dev
 
 ```bash
 npm install
 npm run dev          # builds to dist/ in watch mode + reload server (load dist/ as unpacked)
 npm run build        # tsc --noEmit && vite build
-npm test             # jest (currently one smoke test for Demo/app)
 ```
 
 Details — including the Chrome "Load unpacked" flow and HMR caveats — in [docs/development.md](docs/development.md).

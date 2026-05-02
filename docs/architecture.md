@@ -31,13 +31,12 @@ What the extension actually does. The custom surface is small (~150 lines of TS/
 
 The iframe is the actual UI — the extension just decides **when** and **where** to show it.
 
-## Three entry points
+## Two entry points
 
 | Entry | File | Role |
 |---|---|---|
 | Background service worker | [src/pages/background/index.ts](../src/pages/background/index.ts) | Listens for the action icon click and tab URL changes; relays both as messages to the active tab's content script |
 | Content script | [src/pages/content/index.ts](../src/pages/content/index.ts) | Mounts a React root in `document.body` (id `commentarium-content-view-root`) on every page |
-| Options page | [src/pages/options/](../src/pages/options/) | Stub. Wired in source, **not** in the manifest — see CLAUDE.md "Common pitfalls" |
 
 The manifest is generated from [manifest.ts](../manifest.ts) by a vite plugin under `utils/plugins/`.
 
@@ -105,19 +104,17 @@ Two message types, both fire-and-forget (no response expected).
 src/
 ├── pages/
 │   ├── background/index.ts           # service worker — message dispatcher
-│   ├── content/
-│   │   ├── index.ts                  # entry: mounts React root, dynamic-imports Demo
-│   │   ├── style.scss                # panel styles (slide animation, layout)
-│   │   └── components/
-│   │       ├── Demo/
-│   │       │   ├── app.tsx           # panel state + message listener
-│   │       │   ├── header.tsx        # close button
-│   │       │   ├── index.tsx         # createRoot bootstrap (called via dynamic import)
-│   │       │   └── app.test.tsx      # smoke test
-│   │       └── iframe/
-│   │           ├── index.tsx         # iframe + loading wrapper
-│   │           └── loading.tsx       # spinner
-│   └── options/                      # stub — not registered in manifest
+│   └── content/
+│       ├── index.ts                  # entry: mounts React root, dynamic-imports Demo
+│       ├── style.scss                # panel styles (slide animation, layout)
+│       └── components/
+│           ├── Demo/
+│           │   ├── app.tsx           # panel state + message listener
+│           │   ├── header.tsx        # close button
+│           │   └── index.tsx         # createRoot bootstrap (called via dynamic import)
+│           └── iframe/
+│               ├── index.tsx         # iframe + loading wrapper
+│               └── loading.tsx       # spinner
 ├── assets/style/theme.scss           # shared SCSS (currently a single placeholder rule)
 └── global.d.ts                       # virtual:reload-on-update-* + asset module decls
 

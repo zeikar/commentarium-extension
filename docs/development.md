@@ -19,7 +19,6 @@ No `.env` files — the extension talks only to `https://commentarium.app`, whic
 | `npm run build:watch` | Watch-mode build only (no reload server). Rarely needed directly. |
 | `npm run build:hmr` | Builds the HMR client bundle (`utils/reload/...`) once. `dev` runs this before starting the watcher. |
 | `npm run wss` | Starts the HMR reload websocket server only. Useful if you want to point a separate watcher at it. |
-| `npm test` | `jest` — currently one smoke test for [Demo/app.tsx](../src/pages/content/components/Demo/app.tsx). |
 
 ## Loading the extension
 
@@ -74,13 +73,9 @@ The content-script CSS is emitted as `assets/css/contentStyle<KEY>.chunk.css` wh
 
 ## Tests
 
-```bash
-npm test
-```
+No tests currently. Vitest will be introduced together with the planned Vite upgrade — Vitest 1.x+ requires Vite ≥ 5, so the test runner migration is naturally bundled with that dependency cycle. The first real test will be written against Vitest at that point.
 
-`jest` + `@testing-library/react` + `jest-environment-jsdom`. There's currently one test ([Demo/app.test.tsx](../src/pages/content/components/Demo/app.test.tsx)) and it's a smoke test that's already failing semantically — it asserts the literal string `"content view"` appears in the rendered output, but the component doesn't render that text. **Treat the test suite as a placeholder**, not as coverage. If you start adding behavior worth covering, fix this test first.
-
-There is no test for `chrome.runtime.onMessage` wiring — `chrome.*` is undefined under jsdom, and the boilerplate doesn't ship a mock. Use the dev-load-unpacked flow for any messaging-related verification.
+For now, verify behavior with the dev-load-unpacked flow: rebuild, reload the unpacked extension at `chrome://extensions`, exercise the panel on a real page.
 
 ## Releases
 
