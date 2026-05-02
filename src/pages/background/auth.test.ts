@@ -315,3 +315,78 @@ describe("refreshSession", () => {
     expect(chrome.identity.clearAllCachedAuthTokens).toHaveBeenCalledOnce();
   });
 });
+
+describe("signOut", () => {
+  it("calls Firebase signOut, clears OAuth cache, removes every registered partition cookie", async () => {
+    const firebase = await import("./firebase");
+    (firebase.auth as { currentUser: unknown }).currentUser = { uid: "x" };
+
+    await chrome.storage.local.set({
+      "partitionRegistry:https://example.com|csa=1": {
+        topLevelSite: "https://example.com",
+        hasCrossSiteAncestor: true,
+      },
+      "partitionRegistry:https://other.example|csa=1": {
+        topLevelSite: "https://other.example",
+        hasCrossSiteAncestor: true,
+      },
+      "partitionRegistry:https://third.example|csa=0": {
+        topLevelSite: "https://third.example",
+        hasCrossSiteAncestor: false,
+      },
+      "unrelated:noise": "should-not-touch",
+    });
+    vi.mocked(chrome.storage.local.set).mockClear();
+
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.signOut",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(signOut).toHaveBeenCalledOnce();
+    expect(chrome.identity.clearAllCachedAuthTokens).toHaveBeenCalledOnce();
+
+    expect(chrome.cookies.remove).toHaveBeenCalledTimes(3);
+    const removedPartitions = vi
+      .mocked(chrome.cookies.remove)
+      .mock.calls.map(
+        (c) =>
+          (c[0] as { partitionKey: chrome.cookies.CookiePartitionKey })
+            .partitionKey,
+      );
+    expect(removedPartitions).toContainEqual({
+      topLevelSite: "https://example.com",
+      hasCrossSiteAncestor: true,
+    });
+    expect(removedPartitions).toContainEqual({
+      topLevelSite: "https://other.example",
+      hasCrossSiteAncestor: true,
+    });
+    expect(removedPartitions).toContainEqual({
+      topLevelSite: "https://third.example",
+      hasCrossSiteAncestor: false,
+    });
+
+    // Only the registry keys were cleared; unrelated entries kept.
+    expect(chrome.storage.local.remove).toHaveBeenCalledOnce();
+    const removedKeys = vi.mocked(chrome.storage.local.remove).mock
+      .calls[0][0] as string[];
+    expect(removedKeys).toHaveLength(3);
+    expect(removedKeys.every((k) => k.startsWith("partitionRegistry:"))).toBe(
+      true,
+    );
+  });
+
+  it("succeeds even when the registry is empty", async () => {
+    const firebase = await import("./firebase");
+    (firebase.auth as { currentUser: unknown }).currentUser = { uid: "x" };
+
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.signOut",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(chrome.cookies.remove).not.toHaveBeenCalled();
+    expect(chrome.storage.local.remove).not.toHaveBeenCalled();
+  });
+});

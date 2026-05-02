@@ -155,6 +155,8 @@ async function handle(
       return signInGoogleOp(sender);
     case "commentarium.auth.refreshSession":
       return refreshSessionOp(sender);
+    case "commentarium.auth.signOut":
+      return signOutOp();
     default:
       return {
         error: {
@@ -247,6 +249,15 @@ async function refreshSessionOp(
   }
   try {
     await mintAndWriteCookie({ idToken, sender });
+    return { ok: true };
+  } catch (err) {
+    return { error: asAuthError(err) };
+  }
+}
+
+async function signOutOp(): Promise<AuthResponse> {
+  try {
+    await performSignOutCleanup();
     return { ok: true };
   } catch (err) {
     return { error: asAuthError(err) };
