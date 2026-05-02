@@ -40,6 +40,7 @@ Built on [chrome-extension-boilerplate-react-vite](https://github.com/Jonghakseo
 npm install
 npm run dev          # builds to dist/ in watch mode + reload server (load dist/ as unpacked)
 npm run build        # tsc --noEmit && vite build
+npm test             # vitest run — one test (Demo/app message-listener stability)
 ```
 
 Details — including the Chrome "Load unpacked" flow and HMR caveats — in [docs/development.md](docs/development.md).

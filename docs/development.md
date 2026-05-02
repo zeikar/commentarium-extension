@@ -8,7 +8,7 @@ Build, load, iterate. The boilerplate handles most of this; the notes below are 
 npm install
 ```
 
-No `.env` files — the extension talks only to `https://commentarium.app`, which is hard-coded in [iframe/index.tsx:30](../src/pages/content/components/iframe/index.tsx#L30). `package.json` doesn't pin `engines`; the boilerplate was authored against Node 18 (`@types/node@18`), which is a reasonable floor.
+No `.env` files — the extension talks only to `https://commentarium.app`, which is hard-coded in [iframe/index.tsx:30](../src/pages/content/components/iframe/index.tsx#L30). Node 22 is required (`package.json` pins `engines.node = ">=22"`); CI runs on Node 22 to match.
 
 ## Commands
 
@@ -73,9 +73,16 @@ The content-script CSS is emitted as `assets/css/contentStyle<KEY>.chunk.css` wh
 
 ## Tests
 
-No tests currently. Vitest will be introduced together with the planned Vite upgrade — Vitest 1.x+ requires Vite ≥ 5, so the test runner migration is naturally bundled with that dependency cycle. The first real test will be written against Vitest at that point.
+```bash
+npm test          # vitest run — one-shot, what CI runs
+npm test:watch    # vitest watch mode
+```
 
-For now, verify behavior with the dev-load-unpacked flow: rebuild, reload the unpacked extension at `chrome://extensions`, exercise the panel on a real page.
+Vitest 4 + jsdom + `@testing-library/react`. The chrome-runtime mock lives in [test-utils/vitest.setup.ts](../test-utils/vitest.setup.ts) — it stubs `chrome.runtime.onMessage.{addListener, removeListener}` with `vi.fn()` spies and exports `dispatchChromeMessage(msg, sender)` to synthesize a runtime message into the captured listeners. Extend that file (don't recreate the chrome global per test) when you need broader chrome surface.
+
+Currently one test: [Demo/app.test.tsx](../src/pages/content/components/Demo/app.test.tsx) pins core rule #6 from CLAUDE.md (the message listener registers exactly once and is not re-registered on `shown` toggles).
+
+For end-to-end behavior beyond what the tests cover, use the dev-load-unpacked flow: rebuild, reload the unpacked extension at `chrome://extensions`, exercise the panel on a real page.
 
 ## Releases
 
