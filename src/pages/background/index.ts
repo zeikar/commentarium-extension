@@ -1,5 +1,7 @@
 import reloadOnUpdate from "virtual:reload-on-update-in-background-script";
 
+import "./auth";
+
 reloadOnUpdate("pages/background");
 
 /**
