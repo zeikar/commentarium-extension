@@ -22,6 +22,13 @@ const enableHmrInBackgroundScript = true;
 
 export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), "VITE_");
+  // Allow a shell-set VITE_EXTENSION_KEY (including an explicit empty
+  // string from `cross-env VITE_EXTENSION_KEY=`) to win over .env.local.
+  // Used by the `build:release` script to scrub the dev key ahead of a
+  // Web Store upload, even when the dev's .env.local still has it set.
+  if ("VITE_EXTENSION_KEY" in process.env) {
+    env.VITE_EXTENSION_KEY = process.env.VITE_EXTENSION_KEY ?? "";
+  }
   const isBuild = command === "build";
   const manifestPlugin = isBuild
     ? [
