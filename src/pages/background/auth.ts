@@ -67,7 +67,6 @@ chrome.runtime.onMessageExternal.addListener(
     if (typeof type !== "string" || !type.startsWith(TYPE_NAMESPACE))
       return false;
     if (!pathAllowedForType(type, sender.url)) return false;
-    if (sender.tab?.id == null || sender.frameId == null) return false;
 
     void handle(type).then(
       (resp) => sendResponse(resp),
