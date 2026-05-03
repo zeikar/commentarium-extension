@@ -14,10 +14,11 @@ const COOKIE_NAME = "session";
 const SURFACE_HEADER = "X-Commentarium-Surface";
 
 type AuthError = { code: string; message: string };
-type AuthSuccessOk = { ok: true };
-type AuthSuccessIdToken = { idToken: string };
-type AuthFailure = { error: AuthError; signedOut?: boolean };
-type AuthResponse = AuthSuccessOk | AuthSuccessIdToken | AuthFailure;
+type AuthResponse =
+  | { ok: true }
+  | { ok: true; idToken: string }
+  | { idToken: string }
+  | { error: AuthError; signedOut?: boolean };
 
 function isIframeSurface(url: string | undefined): boolean {
   if (!url) return false;
@@ -137,7 +138,7 @@ chrome.runtime.onMessageExternal.addListener(
     void handle(type, sender).then(
       (resp) => sendResponse(resp),
       (err) =>
-        sendResponse({ error: asAuthError(err) } satisfies AuthFailure),
+        sendResponse({ error: asAuthError(err) }),
     );
     return true;
   },
@@ -150,7 +151,7 @@ async function handle(
   await auth.authStateReady();
   switch (type) {
     case "commentarium.auth.signIn.anonymous":
-      return signInAnonymousOp(sender);
+      return signInAnonymousOp();
     case "commentarium.auth.signIn.google":
       return signInGoogleOp(sender);
     case "commentarium.auth.refreshSession":
@@ -169,9 +170,7 @@ async function handle(
   }
 }
 
-async function signInAnonymousOp(
-  sender: chrome.runtime.MessageSender,
-): Promise<AuthResponse> {
+async function signInAnonymousOp(): Promise<AuthResponse> {
   try {
     await signInAnonymously(auth);
     if (!auth.currentUser) {
@@ -183,8 +182,7 @@ async function signInAnonymousOp(
       };
     }
     const idToken = await auth.currentUser.getIdToken();
-    await mintAndWriteCookie({ idToken, sender });
-    return { ok: true };
+    return { ok: true, idToken };
   } catch (err) {
     return { error: asAuthError(err) };
   }

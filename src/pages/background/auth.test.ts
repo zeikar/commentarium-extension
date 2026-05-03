@@ -86,10 +86,9 @@ const FIXTURE_PARTITION_KEY = {
 };
 
 describe("signIn.anonymous", () => {
-  it("signs in, mints a partitioned cookie, and registers the partition", async () => {
-    // Arrange — the firebase mock currentUser is set up after signIn.
-    const getIdToken = vi.fn().mockResolvedValue("fixture-id-token");
+  it("signs in via Firebase and returns { ok: true, idToken } with no cookie/network side-effects", async () => {
     const firebase = await import("./firebase");
+    const getIdToken = vi.fn().mockResolvedValue("anon-id-token");
     (firebase.auth as { currentUser: unknown }).currentUser = null;
     vi.mocked(signInAnonymously).mockImplementation(async () => {
       (firebase.auth as { currentUser: unknown }).currentUser = {
@@ -99,101 +98,38 @@ describe("signIn.anonymous", () => {
       return { user: { uid: "anon-uid" } } as never;
     });
 
-    const fetchSpy = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ session: "fixture-session-cookie", expiresAtSeconds: 1750000000 }),
+    // Defense: any accidental fetch from the SW must fail loudly. The CHIPS
+    // contract has the iframe (not the SW) call /api/login.
+    const fetchSpy = vi.fn(() => {
+      throw new Error("SW must not call fetch under the CHIPS contract");
     });
     globalThis.fetch = fetchSpy as never;
 
-    // Act
     const result = await dispatchExternalMessage({
       type: "commentarium.auth.signIn.anonymous",
     });
 
-    // Assert
-    expect(result).toEqual({ ok: true });
-
+    expect(result).toEqual({ ok: true, idToken: "anon-id-token" });
     expect(signInAnonymously).toHaveBeenCalledOnce();
     expect(getIdToken).toHaveBeenCalledOnce();
-
-    // /api/login was called with Bearer + surface header
-    expect(fetchSpy).toHaveBeenCalledOnce();
-    const [calledUrl, calledInit] = fetchSpy.mock.calls[0];
-    expect(calledUrl).toBe("https://commentarium.app/api/login");
-    const headers = (calledInit as { headers: Record<string, string> }).headers;
-    expect(headers["Authorization"]).toBe("Bearer fixture-id-token");
-    expect(headers["X-Commentarium-Surface"]).toBe("extension");
-
-    // Cookie was set with the resolved partition key + expiresAtSeconds verbatim
-    expect(chrome.cookies.set).toHaveBeenCalledOnce();
-    const cookieArgs = vi.mocked(chrome.cookies.set).mock.calls[0][0];
-    expect(cookieArgs).toMatchObject({
-      url: "https://commentarium.app/",
-      name: "session",
-      value: "fixture-session-cookie",
-      expirationDate: 1750000000,
-      secure: true,
-      httpOnly: true,
-      sameSite: "no_restriction",
-      partitionKey: FIXTURE_PARTITION_KEY,
-    });
-
-    // Registry entry written under partitionRegistry:<canonical>
-    expect(chrome.storage.local.set).toHaveBeenCalledOnce();
-    const setArg = vi.mocked(chrome.storage.local.set).mock.calls[0][0] as Record<string, unknown>;
-    const keys = Object.keys(setArg);
-    expect(keys).toHaveLength(1);
-    expect(keys[0]).toMatch(/^partitionRegistry:/);
-    expect(setArg[keys[0]]).toEqual(FIXTURE_PARTITION_KEY);
-  });
-
-  it("surfaces an error when /api/login fails", async () => {
-    const firebase = await import("./firebase");
-    const getIdToken = vi.fn().mockResolvedValue("fixture-id-token");
-    (firebase.auth as { currentUser: unknown }).currentUser = null;
-    vi.mocked(signInAnonymously).mockImplementation(async () => {
-      (firebase.auth as { currentUser: unknown }).currentUser = { uid: "anon", getIdToken };
-      return { user: { uid: "anon" } } as never;
-    });
-    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 }) as never;
-
-    const result = await dispatchExternalMessage({
-      type: "commentarium.auth.signIn.anonymous",
-    });
-
-    expect(result).toMatchObject({
-      error: expect.objectContaining({ code: expect.stringMatching(/^auth\//) }),
-    });
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(chrome.cookies.set).not.toHaveBeenCalled();
     expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
 
-  it("surfaces auth/cookie-write-failed when chrome.cookies.set returns null", async () => {
-    const firebase = await import("./firebase");
-    const getIdToken = vi.fn().mockResolvedValue("fixture-id-token");
-    (firebase.auth as { currentUser: unknown }).currentUser = null;
-    vi.mocked(signInAnonymously).mockImplementation(async () => {
-      (firebase.auth as { currentUser: unknown }).currentUser = { uid: "anon", getIdToken };
-      return { user: { uid: "anon" } } as never;
+  it("surfaces an error when Firebase signIn throws", async () => {
+    vi.mocked(signInAnonymously).mockRejectedValueOnce({
+      code: "auth/network-error",
+      message: "transient",
     });
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ session: "x", expiresAtSeconds: 1750000000 }),
-    }) as never;
-    // chrome.cookies.set resolves to null (Chrome's documented failure shape:
-    // no exception, just no Cookie returned).
-    vi.mocked(chrome.cookies.set).mockResolvedValueOnce(null as never);
 
     const result = await dispatchExternalMessage({
       type: "commentarium.auth.signIn.anonymous",
     });
 
     expect(result).toMatchObject({
-      error: expect.objectContaining({ code: "auth/cookie-write-failed" }),
+      error: expect.objectContaining({ code: "auth/network-error" }),
     });
-    // Registry MUST NOT be written when the cookie itself wasn't persisted —
-    // a phantom registry entry would mislead sign-out cleanup.
-    expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
 });
 
