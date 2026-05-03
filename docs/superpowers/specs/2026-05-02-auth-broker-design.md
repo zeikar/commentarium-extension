@@ -1,7 +1,7 @@
 # Auth broker design (cycle ③)
 
 > **Status: Superseded.** This spec was superseded on 2026-05-03 by
-> [auth-broker — CHIPS redesign](../../../../commentarium/docs/superpowers/specs/2026-05-03-auth-broker-chips-redesign.md)
+> [auth-broker — CHIPS redesign](https://github.com/zeikar/commentarium/blob/main/docs/superpowers/specs/2026-05-03-auth-broker-chips-redesign.md)
 > (single source of truth across the webapp + extension repos). The
 > `chrome.cookies`-based broker design described here was never publicly
 > shipped — Manual E2E surfaced a Chrome `host_permissions` constraint that
