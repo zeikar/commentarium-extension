@@ -15,12 +15,15 @@ Built on [chrome-extension-boilerplate-react-vite](https://github.com/Jonghakseo
 
 ## Core rules (must)
 
-1. **The custom code lives under `src/pages/content/components/`** ([Demo/app.tsx](src/pages/content/components/Demo/app.tsx), [iframe/index.tsx](src/pages/content/components/iframe/index.tsx)) and `src/pages/background/index.ts`. Everything else (vite plugins, HMR, manifest builder under `utils/`) is boilerplate — don't refactor it without a reason.
-2. **Iframe target is `https://commentarium.app/comments?url=<encoded-url>`** — see [iframe/index.tsx:30](src/pages/content/components/iframe/index.tsx#L30). The companion app lives at <https://commentarium.app>; the extension is purely a UI shell.
-3. **All cross-script communication is via `chrome.tabs.sendMessage` / `chrome.runtime.onMessage`** with two message types: `{type: "toggle", url}` (action click) and `{type: "urlChange", url}` (SPA navigation). Background sends, content listens. See [docs/architecture.md#messaging](docs/architecture.md#messaging).
-4. **Permissions are intentionally minimal**: `activeTab` only. Content script matches `<all_urls>` so it auto-loads everywhere — no host permission needed.
+1. **The custom code lives under `src/pages/content/components/`** ([Demo/app.tsx](src/pages/content/components/Demo/app.tsx), [iframe/index.tsx](src/pages/content/components/iframe/index.tsx)) and `src/pages/background/` ([index.ts](src/pages/background/index.ts), [auth.ts](src/pages/background/auth.ts), [firebase.ts](src/pages/background/firebase.ts)). Everything else (vite plugins, HMR, manifest builder under `utils/`) is boilerplate — don't refactor it without a reason.
+2. **Iframe target is `https://commentarium.app/comments?url=<encoded-url>&surface=extension`** — see [iframe/index.tsx:30](src/pages/content/components/iframe/index.tsx#L30). The companion app lives at <https://commentarium.app>; the extension is purely a UI shell.
+3. **Two distinct message channels**:
+   - **Toggle/urlChange**: `chrome.tabs.sendMessage` / `chrome.runtime.onMessage`. Background sends, content listens. Two message types: `{type: "toggle", url}` (action click) and `{type: "urlChange", url}` (SPA navigation). See [docs/architecture.md#messaging](docs/architecture.md#messaging).
+   - **Auth broker**: `chrome.runtime.sendMessage(EXT_ID, …)` / `chrome.runtime.onMessageExternal`. Webapp iframe sends, SW listens. Five ops under the `commentarium.auth.*` namespace. Different API, different listener — don't conflate them. See [docs/architecture.md#auth-broker-service-worker](docs/architecture.md#auth-broker-service-worker) and [src/pages/background/auth.ts](src/pages/background/auth.ts).
+4. **Permissions** are exactly three: `activeTab`, `identity`, `storage`. Identity for `chrome.identity.getAuthToken`; storage for Firebase Auth's persistence (`firebase/auth/web-extension`). No `host_permissions` — the SW does not make cross-origin HTTP requests under the CHIPS contract. The iframe handles `/api/login` itself and the server writes the partitioned cookie. Content script `matches: ["<all_urls>"]` is what grants page access for mounting the panel.
 5. **Iframe is lazy-mounted**: it does not exist in the DOM until the first toggle. After that, `key={url}` is used to force-reload on URL change. Don't replace this with `src=` reassignment — see [iframe/index.tsx:27-32](src/pages/content/components/iframe/index.tsx#L27-L32) and the commit history for `5932faf`.
 6. **Message-listener stability**: [Demo/app.tsx](src/pages/content/components/Demo/app.tsx) registers `chrome.runtime.onMessage` once on mount with empty deps, and reads the latest `shown` via a ref. Don't make the listener depend on state — it would re-register on every render and double-fire.
+7. **Auth broker is a thin token vendor**: it returns `{ ok: true, idToken }` (signIn / refresh) or `{ idToken }` (handoff getIdToken) — and never writes cookies, never calls `/api/login`. Cleanup on the signed-out path is best-effort (`performSignOutCleanupBestEffort`) — don't unwrap it without understanding why; a transient cleanup throw must not suppress the `signedOut: true` signal to the iframe.
 
 ## Common pitfalls
 
@@ -38,9 +41,10 @@ Built on [chrome-extension-boilerplate-react-vite](https://github.com/Jonghakseo
 
 ```bash
 npm install
-npm run dev          # builds to dist/ in watch mode + reload server (load dist/ as unpacked)
-npm run build        # tsc --noEmit && vite build
-npm test             # vitest run — one test (Demo/app message-listener stability)
+npm run dev             # builds to dist/ in watch mode + reload server (load dist/ as unpacked)
+npm run build           # tsc --noEmit && vite build
+npm run build:release   # what the Web Store artifact must go through — scrubs VITE_EXTENSION_KEY
+npm test                # vitest run — Demo/app + auth broker + manifest contract suites
 ```
 
-Details — including the Chrome "Load unpacked" flow and HMR caveats — in [docs/development.md](docs/development.md).
+Details — including the Chrome "Load unpacked" flow, HMR caveats, and release-build flow — in [docs/development.md](docs/development.md).

@@ -95,6 +95,10 @@ export default defineConfig(({ mode, command }) => {
       environment: "jsdom",
       globals: false,
       setupFiles: ["./test-utils/vitest.setup.ts"],
+      // Skip git worktrees created by superpowers skills (.gitignored already).
+      // Without this, vitest descends into .worktrees/<branch>/ and runs the
+      // shadow copy of the suite — including stale tests from merged branches.
+      exclude: ["**/node_modules/**", "**/dist/**", "**/.worktrees/**"],
     },
   };
 });
