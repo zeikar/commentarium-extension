@@ -72,7 +72,7 @@ export function buildManifest(env: ManifestEnv): chrome.runtime.ManifestV3 {
   };
 
   if (env.VITE_EXTENSION_KEY) {
-    (manifest as chrome.runtime.ManifestV3 & { key: string }).key = env.VITE_EXTENSION_KEY;
+    manifest.key = env.VITE_EXTENSION_KEY;
   }
 
   return manifest;
