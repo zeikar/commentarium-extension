@@ -91,4 +91,6 @@ For end-to-end behavior beyond what the tests cover, use the dev-load-unpacked f
 
 ## Releases
 
-No automated release pipeline is checked in. To ship: bump `version` in [package.json](../package.json) (it's read by [manifest.ts](../manifest.ts)), `npm run build`, and zip the contents of `dist/` for upload to the Chrome Web Store.
+No automated release pipeline is checked in. To ship: bump `version` in [package.json](../package.json) (it's read by [manifest.ts](../manifest.ts)), run **`npm run build:release`**, and zip the contents of `dist/` for upload to the Chrome Web Store.
+
+`build:release` (not plain `build`) is what the Web Store artifact must go through — it scrubs `VITE_EXTENSION_KEY` via `cross-env` so a dev's `.env.local` cannot accidentally bake the unpacked-dev key into the released manifest. CI's artifact job is wired the same way (see [.github/workflows/build-zip.yml](../.github/workflows/build-zip.yml)).
