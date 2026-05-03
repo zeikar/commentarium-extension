@@ -195,41 +195,39 @@ describe("signIn.google", () => {
 });
 
 describe("refreshSession", () => {
-  it("happy path: forces ID token refresh, writes cookie, returns ok", async () => {
+  it("happy path: forces ID token refresh and returns { ok, idToken }", async () => {
     const firebase = await import("./firebase");
     const getIdToken = vi.fn().mockResolvedValue("refreshed-id-token");
-    (firebase.auth as { currentUser: unknown }).currentUser = { uid: "user-x", getIdToken };
+    (firebase.auth as { currentUser: unknown }).currentUser = {
+      uid: "user-x",
+      getIdToken,
+    };
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ session: "refreshed-session", expiresAtSeconds: 1750000099 }),
-    }) as never;
+    const fetchSpy = vi.fn(() => {
+      throw new Error("SW must not call fetch under the CHIPS contract");
+    });
+    globalThis.fetch = fetchSpy as never;
 
     const result = await dispatchExternalMessage({
       type: "commentarium.auth.refreshSession",
     });
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, idToken: "refreshed-id-token" });
     expect(getIdToken).toHaveBeenCalledWith(true); // force refresh
-    expect(chrome.cookies.set).toHaveBeenCalledOnce();
-    expect(chrome.storage.local.set).toHaveBeenCalledOnce();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(chrome.cookies.set).not.toHaveBeenCalled();
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
 
-  it("user-gone: getIdToken(true) rejects → signOut + cookie cleanup + signedOut: true", async () => {
+  it("user-gone: getIdToken(true) rejects → firebaseSignOut + signedOut: true", async () => {
     const firebase = await import("./firebase");
     const getIdToken = vi
       .fn()
       .mockRejectedValue({ code: "auth/user-not-found", message: "user gone" });
-    (firebase.auth as { currentUser: unknown }).currentUser = { uid: "user-x", getIdToken };
-
-    // Pre-seed the registry so cleanup actually iterates entries
-    await chrome.storage.local.set({
-      "partitionRegistry:https://example.com|csa=1": {
-        topLevelSite: "https://example.com",
-        hasCrossSiteAncestor: true,
-      },
-    });
-    vi.mocked(chrome.storage.local.set).mockClear();
+    (firebase.auth as { currentUser: unknown }).currentUser = {
+      uid: "user-x",
+      getIdToken,
+    };
 
     const result = await dispatchExternalMessage({
       type: "commentarium.auth.refreshSession",
@@ -240,26 +238,14 @@ describe("refreshSession", () => {
       signedOut: true,
     });
     expect(signOut).toHaveBeenCalledOnce();
-    expect(chrome.cookies.remove).toHaveBeenCalledTimes(1);
     expect(chrome.identity.clearAllCachedAuthTokens).toHaveBeenCalledOnce();
-    // Registry was cleared
-    expect(chrome.storage.local.remove).toHaveBeenCalledOnce();
+    expect(chrome.cookies.remove).not.toHaveBeenCalled();
+    expect(chrome.cookies.set).not.toHaveBeenCalled();
   });
 
-  it("no current user: runs cleanup and returns signedOut: true", async () => {
+  it("no current user: runs Firebase + identity cleanup and returns signedOut: true", async () => {
     const firebase = await import("./firebase");
     (firebase.auth as { currentUser: unknown }).currentUser = null;
-
-    // Pre-seed the registry to verify cleanup actually happens — registry +
-    // partitioned cookies could persist from a prior session even when the
-    // Firebase user is gone.
-    await chrome.storage.local.set({
-      "partitionRegistry:https://example.com|csa=1": {
-        topLevelSite: "https://example.com",
-        hasCrossSiteAncestor: true,
-      },
-    });
-    vi.mocked(chrome.storage.local.set).mockClear();
 
     const result = await dispatchExternalMessage({
       type: "commentarium.auth.refreshSession",
@@ -269,11 +255,39 @@ describe("refreshSession", () => {
       error: expect.objectContaining({ code: "auth/no-current-user" }),
       signedOut: true,
     });
-    expect(chrome.cookies.set).not.toHaveBeenCalled();
-    // Cleanup: registry-driven cookie removal happened.
-    expect(chrome.cookies.remove).toHaveBeenCalledTimes(1);
-    expect(chrome.storage.local.remove).toHaveBeenCalledOnce();
+    expect(chrome.cookies.remove).not.toHaveBeenCalled();
     expect(chrome.identity.clearAllCachedAuthTokens).toHaveBeenCalledOnce();
+  });
+
+  it("still returns signedOut: true even when cleanup throws (best-effort)", async () => {
+    // Why this matters: webapp pivots UI to signed-out only when it sees
+    // signedOut: true. If a transient cleanup throw (e.g. clearAllCachedAuthTokens
+    // rejecting on a flaky chrome.identity call) escapes the op, the listener's
+    // error path returns plain { error } without signedOut, and the iframe
+    // stays "signed-in" client-side until the next 401. Cleanup must not gate
+    // the signed-out signal.
+    const firebase = await import("./firebase");
+    const getIdToken = vi
+      .fn()
+      .mockRejectedValue({ code: "auth/user-not-found", message: "user gone" });
+    (firebase.auth as { currentUser: unknown }).currentUser = {
+      uid: "user-x",
+      getIdToken,
+    };
+    vi.mocked(signOut).mockRejectedValueOnce(new Error("transient firebase failure"));
+    vi.mocked(chrome.identity.clearAllCachedAuthTokens).mockRejectedValueOnce(
+      new Error("transient identity failure"),
+    );
+
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.refreshSession",
+    });
+
+    expect(result).toMatchObject({
+      // The originating error is preserved — not the cleanup error.
+      error: expect.objectContaining({ code: "auth/user-not-found" }),
+      signedOut: true,
+    });
   });
 });
 

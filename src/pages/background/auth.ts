@@ -155,7 +155,7 @@ async function handle(
     case "commentarium.auth.signIn.google":
       return signInGoogleOp();
     case "commentarium.auth.refreshSession":
-      return refreshSessionOp(sender);
+      return refreshSessionOp();
     case "commentarium.auth.signOut":
       return signOutOp();
     case "commentarium.auth.getIdToken":
@@ -222,16 +222,13 @@ async function signInGoogleOp(): Promise<AuthResponse> {
   }
 }
 
-async function refreshSessionOp(
-  sender: chrome.runtime.MessageSender,
-): Promise<AuthResponse> {
+async function refreshSessionOp(): Promise<AuthResponse> {
   if (!auth.currentUser) {
-    // Stale registry / partitioned cookies could outlive the Firebase user
-    // (e.g., user was cleared in another SW context but cookies in
-    // chrome.cookies + the registry are still around). Run the same cleanup
-    // path as a real sign-out so the response and the actual stored state
-    // match.
-    await performSignOutCleanup();
+    // No live Firebase user — run sign-out cleanup as best-effort so
+    // chrome.identity OAuth tokens are dropped. Cleanup failure must NOT
+    // suppress the signedOut signal: the webapp's UI flips to signed-out
+    // only when it sees this flag.
+    await performSignOutCleanupBestEffort();
     return {
       error: { code: "auth/no-current-user", message: "no signed-in user" },
       signedOut: true,
@@ -241,14 +238,20 @@ async function refreshSessionOp(
   try {
     idToken = await auth.currentUser.getIdToken(true);
   } catch (err) {
-    await performSignOutCleanup();
+    await performSignOutCleanupBestEffort();
     return { error: asAuthError(err), signedOut: true };
   }
+  return { ok: true, idToken };
+}
+
+async function performSignOutCleanupBestEffort(): Promise<void> {
   try {
-    await mintAndWriteCookie({ idToken, sender });
-    return { ok: true };
-  } catch (err) {
-    return { error: asAuthError(err) };
+    await performSignOutCleanup();
+  } catch {
+    // Swallowed deliberately — cleanup is best-effort on the refresh
+    // signed-out path. signOutOp keeps surfacing cleanup errors via its
+    // own try/catch (different contract: there, the user explicitly asked
+    // to sign out and wants to know if it failed).
   }
 }
 
