@@ -153,7 +153,7 @@ async function handle(
     case "commentarium.auth.signIn.anonymous":
       return signInAnonymousOp();
     case "commentarium.auth.signIn.google":
-      return signInGoogleOp(sender);
+      return signInGoogleOp();
     case "commentarium.auth.refreshSession":
       return refreshSessionOp(sender);
     case "commentarium.auth.signOut":
@@ -188,9 +188,7 @@ async function signInAnonymousOp(): Promise<AuthResponse> {
   }
 }
 
-async function signInGoogleOp(
-  sender: chrome.runtime.MessageSender,
-): Promise<AuthResponse> {
+async function signInGoogleOp(): Promise<AuthResponse> {
   try {
     // The Promise form of chrome.identity.getAuthToken returns a
     // GetAuthTokenResult object, not a bare string. The string is the legacy
@@ -218,8 +216,7 @@ async function signInGoogleOp(
       };
     }
     const idToken = await auth.currentUser.getIdToken();
-    await mintAndWriteCookie({ idToken, sender });
-    return { ok: true };
+    return { ok: true, idToken };
   } catch (err) {
     return { error: asAuthError(err) };
   }

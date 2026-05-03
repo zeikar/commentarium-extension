@@ -134,14 +134,19 @@ describe("signIn.anonymous", () => {
 });
 
 describe("signIn.google", () => {
-  it("uses chrome.identity, signs in via Firebase credential, writes cookie", async () => {
+  it("uses chrome.identity, signs in via Firebase credential, returns { ok, idToken } with no cookie/network side-effects", async () => {
     const firebase = await import("./firebase");
     const getIdToken = vi.fn().mockResolvedValue("google-id-token");
     (firebase.auth as { currentUser: unknown }).currentUser = null;
 
-    vi.mocked(GoogleAuthProvider.credential).mockReturnValue({ providerId: "google.com" } as never);
+    vi.mocked(GoogleAuthProvider.credential).mockReturnValue({
+      providerId: "google.com",
+    } as never);
     vi.mocked(signInWithCredential).mockImplementation(async () => {
-      (firebase.auth as { currentUser: unknown }).currentUser = { uid: "google-uid", getIdToken };
+      (firebase.auth as { currentUser: unknown }).currentUser = {
+        uid: "google-uid",
+        getIdToken,
+      };
       return { user: { uid: "google-uid" } } as never;
     });
     vi.mocked(chrome.identity.getAuthToken).mockResolvedValue({
@@ -149,23 +154,43 @@ describe("signIn.google", () => {
       grantedScopes: ["openid", "email", "profile"],
     } as never);
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ session: "google-session", expiresAtSeconds: 1750000001 }),
-    }) as never;
+    const fetchSpy = vi.fn(() => {
+      throw new Error("SW must not call fetch under the CHIPS contract");
+    });
+    globalThis.fetch = fetchSpy as never;
 
     const result = await dispatchExternalMessage({
       type: "commentarium.auth.signIn.google",
     });
 
-    expect(result).toEqual({ ok: true });
-    expect(chrome.identity.getAuthToken).toHaveBeenCalledWith({ interactive: true });
-    // The handler extracts .token from the result object before building
-    // the Google credential; signInWithCredential sees the access-token string.
-    expect(GoogleAuthProvider.credential).toHaveBeenCalledWith(null, "google-access-token");
+    expect(result).toEqual({ ok: true, idToken: "google-id-token" });
+    expect(chrome.identity.getAuthToken).toHaveBeenCalledWith({
+      interactive: true,
+    });
+    expect(GoogleAuthProvider.credential).toHaveBeenCalledWith(
+      null,
+      "google-access-token",
+    );
     expect(signInWithCredential).toHaveBeenCalledOnce();
-    expect(chrome.cookies.set).toHaveBeenCalledOnce();
-    expect(chrome.storage.local.set).toHaveBeenCalledOnce();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(chrome.cookies.set).not.toHaveBeenCalled();
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+  });
+
+  it("surfaces identity/no-token when chrome.identity.getAuthToken returns no token", async () => {
+    vi.mocked(chrome.identity.getAuthToken).mockResolvedValue({
+      token: undefined,
+      grantedScopes: [],
+    } as never);
+
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.signIn.google",
+    });
+
+    expect(result).toMatchObject({
+      error: expect.objectContaining({ code: "identity/no-token" }),
+    });
+    expect(signInWithCredential).not.toHaveBeenCalled();
   });
 });
 
