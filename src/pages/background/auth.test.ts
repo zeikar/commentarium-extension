@@ -292,10 +292,30 @@ describe("refreshSession", () => {
 });
 
 describe("signOut", () => {
-  it("calls Firebase signOut, clears OAuth cache, removes every registered partition cookie", async () => {
+  it("calls Firebase signOut and clears chrome.identity OAuth cache", async () => {
     const firebase = await import("./firebase");
     (firebase.auth as { currentUser: unknown }).currentUser = { uid: "x" };
 
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.signOut",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(signOut).toHaveBeenCalledOnce();
+    expect(chrome.identity.clearAllCachedAuthTokens).toHaveBeenCalledOnce();
+    expect(chrome.cookies.remove).not.toHaveBeenCalled();
+    expect(chrome.storage.local.remove).not.toHaveBeenCalled();
+  });
+
+  it("ignores any pre-existing partitionRegistry entries (cookie path is gone)", async () => {
+    const firebase = await import("./firebase");
+    (firebase.auth as { currentUser: unknown }).currentUser = { uid: "x" };
+
+    // Pre-seed the registry to verify the new signOut implementation does NOT
+    // walk it. Under the CHIPS contract, partition cookies are owned by the
+    // server (via /api/logout) — the SW must not touch them. This is the
+    // load-bearing red test for Task 5: today's code walks the registry and
+    // calls chrome.cookies.remove; the new code must not.
     await chrome.storage.local.set({
       "partitionRegistry:https://example.com|csa=1": {
         topLevelSite: "https://example.com",
@@ -305,56 +325,8 @@ describe("signOut", () => {
         topLevelSite: "https://other.example",
         hasCrossSiteAncestor: true,
       },
-      "partitionRegistry:https://third.example|csa=0": {
-        topLevelSite: "https://third.example",
-        hasCrossSiteAncestor: false,
-      },
-      "unrelated:noise": "should-not-touch",
     });
     vi.mocked(chrome.storage.local.set).mockClear();
-
-    const result = await dispatchExternalMessage({
-      type: "commentarium.auth.signOut",
-    });
-
-    expect(result).toEqual({ ok: true });
-    expect(signOut).toHaveBeenCalledOnce();
-    expect(chrome.identity.clearAllCachedAuthTokens).toHaveBeenCalledOnce();
-
-    expect(chrome.cookies.remove).toHaveBeenCalledTimes(3);
-    const removedPartitions = vi
-      .mocked(chrome.cookies.remove)
-      .mock.calls.map(
-        (c) =>
-          (c[0] as { partitionKey: chrome.cookies.CookiePartitionKey })
-            .partitionKey,
-      );
-    expect(removedPartitions).toContainEqual({
-      topLevelSite: "https://example.com",
-      hasCrossSiteAncestor: true,
-    });
-    expect(removedPartitions).toContainEqual({
-      topLevelSite: "https://other.example",
-      hasCrossSiteAncestor: true,
-    });
-    expect(removedPartitions).toContainEqual({
-      topLevelSite: "https://third.example",
-      hasCrossSiteAncestor: false,
-    });
-
-    // Only the registry keys were cleared; unrelated entries kept.
-    expect(chrome.storage.local.remove).toHaveBeenCalledOnce();
-    const removedKeys = vi.mocked(chrome.storage.local.remove).mock
-      .calls[0][0] as string[];
-    expect(removedKeys).toHaveLength(3);
-    expect(removedKeys.every((k) => k.startsWith("partitionRegistry:"))).toBe(
-      true,
-    );
-  });
-
-  it("succeeds even when the registry is empty", async () => {
-    const firebase = await import("./firebase");
-    (firebase.auth as { currentUser: unknown }).currentUser = { uid: "x" };
 
     const result = await dispatchExternalMessage({
       type: "commentarium.auth.signOut",
@@ -365,24 +337,10 @@ describe("signOut", () => {
     expect(chrome.storage.local.remove).not.toHaveBeenCalled();
   });
 
-  it("clears partitioned cookies even when firebaseSignOut throws", async () => {
+  it("still clears the chrome.identity OAuth cache when firebaseSignOut throws", async () => {
     const firebase = await import("./firebase");
     (firebase.auth as { currentUser: unknown }).currentUser = { uid: "x" };
 
-    await chrome.storage.local.set({
-      "partitionRegistry:https://example.com|csa=1": {
-        topLevelSite: "https://example.com",
-        hasCrossSiteAncestor: true,
-      },
-      "partitionRegistry:https://other.example|csa=1": {
-        topLevelSite: "https://other.example",
-        hasCrossSiteAncestor: true,
-      },
-    });
-    vi.mocked(chrome.storage.local.set).mockClear();
-
-    // Simulate Firebase signOut crashing — registry-driven cookie cleanup
-    // is the security-critical step and MUST still run.
     vi.mocked(signOut).mockRejectedValueOnce(
       new Error("firebase signOut transient failure"),
     );
@@ -391,14 +349,12 @@ describe("signOut", () => {
       type: "commentarium.auth.signOut",
     });
 
-    // Op response surfaces the error.
     expect(result).toMatchObject({
       error: expect.objectContaining({ code: expect.stringMatching(/^auth\//) }),
     });
-
-    // But cookie cleanup STILL ran.
-    expect(chrome.cookies.remove).toHaveBeenCalledTimes(2);
-    expect(chrome.storage.local.remove).toHaveBeenCalledOnce();
+    // chrome.identity cleanup still ran — important so a retried signIn.google
+    // shows the chooser instead of being held hostage by stale OAuth tokens.
+    expect(chrome.identity.clearAllCachedAuthTokens).toHaveBeenCalledOnce();
   });
 });
 
