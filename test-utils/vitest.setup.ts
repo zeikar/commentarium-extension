@@ -27,10 +27,13 @@ const onMessageExternalRemoveListener = vi.fn((cb: ChromeExternalListener) => {
   if (i !== -1) externalListeners.splice(i, 1);
 });
 
-// chrome.cookies.* (new) — `set` resolves to the resulting Cookie on
-// success (or null/undefined on failure). Default to a minimal Cookie-like
-// object so the SW's success path proceeds; tests that exercise the
-// failure path override per-call with mockResolvedValueOnce(null).
+// chrome.cookies.* — kept mocked even though the manifest no longer requests
+// the `cookies` permission under the CHIPS contract. The mocks exist so
+// auth.test.ts's `expect(chrome.cookies.set).not.toHaveBeenCalled()` regression
+// guards have something to assert against; if a future change re-introduces a
+// chrome.cookies.* callsite in auth.ts, those guards fail loudly. `set` resolves
+// to a minimal Cookie-like object so any accidental call returns a plausible
+// shape and the test that catches the call gets a useful diff.
 const cookiesSet = vi.fn(async (details: chrome.cookies.SetDetails) => ({
   domain: "commentarium.app",
   name: details.name ?? "session",

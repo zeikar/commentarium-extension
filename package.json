@@ -1,6 +1,6 @@
 {
   "name": "Commentarium",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "💬 Commentarium: Rate, comment, and vote on any website. Make the web more interactive—join the conversation today!",
   "license": "MIT",
   "repository": {
@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit && vite build",
+    "build:release": "tsc --noEmit && cross-env VITE_EXTENSION_KEY= vite build",
     "build:watch": "cross-env __DEV__=true vite build --watch",
     "build:hmr": "rollup --config utils/reload/rollup.config.ts",
     "wss": "node utils/reload/initReloadServer.js",

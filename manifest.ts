@@ -2,6 +2,14 @@ import packageJson from "./package.json";
 
 export type ManifestEnv = {
   VITE_GOOGLE_OAUTH_CLIENT_ID?: string;
+  /**
+   * Optional: pin the unpacked-dev extension to a fixed ID by supplying the
+   * extension's RSA public key (base64-encoded SubjectPublicKeyInfo). Used so
+   * that local devs running an unpacked build can talk to the deployed
+   * webapp, which hardcodes the prod extension ID. Production Web Store
+   * publishes leave this unset — the Web Store assigns the ID.
+   */
+  VITE_EXTENSION_KEY?: string;
 };
 
 const REQUIRED_KEYS: (keyof ManifestEnv)[] = ["VITE_GOOGLE_OAUTH_CLIENT_ID"];
@@ -18,19 +26,18 @@ export function buildManifest(env: ManifestEnv): chrome.runtime.ManifestV3 {
     );
   }
 
-  return {
+  const manifest: chrome.runtime.ManifestV3 = {
     manifest_version: 3,
     name: packageJson.name,
     version: packageJson.version,
     description: packageJson.description,
-    minimum_chrome_version: "132",
+    minimum_chrome_version: "114",
     background: {
       service_worker: "src/pages/background/index.js",
       type: "module",
     },
     action: {},
-    permissions: ["activeTab", "identity", "storage", "cookies"],
-    host_permissions: ["https://commentarium.app/*"],
+    permissions: ["activeTab", "identity", "storage"],
     externally_connectable: {
       matches: ["https://commentarium.app/*"],
     },
@@ -63,4 +70,10 @@ export function buildManifest(env: ManifestEnv): chrome.runtime.ManifestV3 {
       },
     ],
   };
+
+  if (env.VITE_EXTENSION_KEY) {
+    manifest.key = env.VITE_EXTENSION_KEY;
+  }
+
+  return manifest;
 }
