@@ -80,11 +80,6 @@ describe("auth handler — sender gates", () => {
   });
 });
 
-const FIXTURE_PARTITION_KEY = {
-  topLevelSite: "https://example.com",
-  hasCrossSiteAncestor: true,
-};
-
 describe("signIn.anonymous", () => {
   it("signs in via Firebase and returns { ok: true, idToken } with no cookie/network side-effects", async () => {
     const firebase = await import("./firebase");

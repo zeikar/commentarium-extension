@@ -11,9 +11,9 @@ const TYPE_NAMESPACE = "commentarium.auth.";
 
 type AuthError = { code: string; message: string };
 type AuthResponse =
-  | { ok: true }
-  | { ok: true; idToken: string }
-  | { idToken: string }
+  | { ok: true }                  // signOut
+  | { ok: true; idToken: string } // signIn.* + refreshSession
+  | { idToken: string }           // getIdToken (handoff)
   | { error: AuthError; signedOut?: boolean };
 
 function isIframeSurface(url: string | undefined): boolean {
