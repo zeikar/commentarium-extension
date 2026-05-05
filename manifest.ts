@@ -17,7 +17,10 @@ const REQUIRED_KEYS: (keyof ManifestEnv)[] = ["VITE_GOOGLE_OAUTH_CLIENT_ID"];
 /**
  * After changing, please reload the extension at `chrome://extensions`
  */
-export function buildManifest(env: ManifestEnv): chrome.runtime.ManifestV3 {
+export function buildManifest(
+  env: ManifestEnv,
+  opts: { isDev?: boolean } = {},
+): chrome.runtime.ManifestV3 {
   const missing = REQUIRED_KEYS.filter((k) => !env[k]);
   if (missing.length > 0) {
     throw new Error(
@@ -26,9 +29,15 @@ export function buildManifest(env: ManifestEnv): chrome.runtime.ManifestV3 {
     );
   }
 
+  // Dev builds get a "(DEV)" suffix so a developer running the unpacked
+  // build alongside the Web Store install can tell them apart in
+  // chrome://extensions and the toolbar tooltip. The toolbar badge
+  // ("DEV", red) is set at runtime by the background SW.
+  const name = opts.isDev ? `${packageJson.name} (DEV)` : packageJson.name;
+
   const manifest: chrome.runtime.ManifestV3 = {
     manifest_version: 3,
-    name: packageJson.name,
+    name,
     version: packageJson.version,
     description: packageJson.description,
     minimum_chrome_version: "114",

@@ -40,4 +40,11 @@ describe("buildManifest — CHIPS contract", () => {
     const m = buildManifest(baseEnv);
     expect(m.externally_connectable?.matches).toEqual(["https://commentarium.app/*"]);
   });
+
+  it("appends a `(DEV)` suffix to `name` only when isDev is true", () => {
+    const prod = buildManifest(baseEnv);
+    const dev = buildManifest(baseEnv, { isDev: true });
+    expect(prod.name).not.toMatch(/\(DEV\)$/);
+    expect(dev.name).toBe(`${prod.name} (DEV)`);
+  });
 });

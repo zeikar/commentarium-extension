@@ -32,13 +32,16 @@ export default defineConfig(({ mode, command }) => {
   const isBuild = command === "build";
   const manifestPlugin = isBuild
     ? [
-        makeManifest(buildManifest(env), {
+        makeManifest(buildManifest(env, { isDev }), {
           isDev,
           contentScriptCssKey: regenerateCacheInvalidationKey(),
         }),
       ]
     : [];
   return {
+    define: {
+      __DEV__: JSON.stringify(isDev),
+    },
     resolve: {
       alias: {
         "@src": root,

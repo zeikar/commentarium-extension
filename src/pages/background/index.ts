@@ -12,6 +12,13 @@ reloadOnUpdate("pages/content/style.scss");
 
 console.log("background loaded");
 
+if (__DEV__) {
+  // Visual marker so a dev build is unmistakable next to the Web Store install.
+  // Tree-shaken out of release bundles via the vite `define` constant.
+  void chrome.action.setBadgeText({ text: "DEV" });
+  void chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
+}
+
 chrome.action.onClicked.addListener((tab) => {
   if (typeof tab.id !== "number") return;
   const event = { type: "toggle", url: tab.url };
