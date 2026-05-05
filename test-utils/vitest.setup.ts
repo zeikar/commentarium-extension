@@ -80,10 +80,19 @@ const storageLocalRemove = vi.fn(async (keys: string | string[]) => {
   for (const k of arr) storageMap.delete(k);
 });
 
+// chrome.runtime.getPlatformInfo (used by signInGoogleOp's keepalive ping
+// to extend the SW idle timer while interactive OAuth is in flight).
+const runtimeGetPlatformInfo = vi.fn(async () => ({
+  os: "mac" as chrome.runtime.PlatformOs,
+  arch: "x86-64" as chrome.runtime.PlatformArch,
+  nacl_arch: "x86-64" as chrome.runtime.PlatformNaclArch,
+}));
+
 (globalThis as unknown as { chrome: unknown }).chrome = {
   runtime: {
     onMessage: { addListener: onMessageAddListener, removeListener: onMessageRemoveListener },
     onMessageExternal: { addListener: onMessageExternalAddListener, removeListener: onMessageExternalRemoveListener },
+    getPlatformInfo: runtimeGetPlatformInfo,
   },
   cookies: {
     set: cookiesSet,

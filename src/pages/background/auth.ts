@@ -118,14 +118,46 @@ async function signInAnonymousOp(): Promise<AuthResponse> {
   }
 }
 
+// Hard cap on the interactive OAuth flow. Past this we surface a clean
+// timeout error to the iframe so the spinner can stop. Kept well below
+// Chrome's ~5-min MV3 service-worker lifetime cap — at the cap the SW
+// can be killed *before* the timer fires, dropping the response and
+// landing the iframe back in the original "channel closed" failure mode.
+// 60s is plenty for a normal OAuth flow (~15-30s) and short enough that
+// a cancel reads as a clean timeout rather than a hang.
+const SIGN_IN_GOOGLE_TIMEOUT_MS = 60 * 1000;
+
 async function signInGoogleOp(): Promise<AuthResponse> {
+  // Hold the SW alive while interactive auth is pending. Without periodic
+  // chrome.* activity, the 30s idle timeout can close the message channel
+  // before chrome.identity.getAuthToken's callback fires on the cancel
+  // path — the iframe then sees a generic "channel closed" error instead
+  // of a proper response.
+  const keepAlive = setInterval(() => {
+    void chrome.runtime.getPlatformInfo().catch(() => {});
+  }, 20_000);
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutTimer = setTimeout(
+      () =>
+        reject({
+          code: "identity/timeout",
+          message:
+            "interactive auth timed out (no response from chooser)",
+        }),
+      SIGN_IN_GOOGLE_TIMEOUT_MS,
+    );
+  });
   try {
     // The Promise form of chrome.identity.getAuthToken returns a
     // GetAuthTokenResult object, not a bare string. The string is the legacy
     // callback-API shape. Extract .token explicitly.
-    const tokenResult = await chrome.identity.getAuthToken({
-      interactive: true,
-    });
+    // Race against the timeout so a Chrome quirk that drops the cancel
+    // callback can't leave the request hanging.
+    const tokenResult = await Promise.race([
+      chrome.identity.getAuthToken({ interactive: true }),
+      timeoutPromise,
+    ]);
     const accessToken = tokenResult?.token;
     if (!accessToken) {
       return {
@@ -149,6 +181,9 @@ async function signInGoogleOp(): Promise<AuthResponse> {
     return { ok: true, idToken };
   } catch (err) {
     return { error: asAuthError(err) };
+  } finally {
+    clearInterval(keepAlive);
+    if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
   }
 }
 

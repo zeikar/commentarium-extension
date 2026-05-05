@@ -187,6 +187,34 @@ describe("signIn.google", () => {
     });
     expect(signInWithCredential).not.toHaveBeenCalled();
   });
+
+  it("times out with identity/timeout when getAuthToken never resolves (cancel-callback drop)", async () => {
+    // Why this matters: when the user closes the OAuth chooser without
+    // selecting, Chrome occasionally never fires the callback. Without a
+    // timeout, the SW would idle out and the iframe would see a generic
+    // "channel closed" error rather than a structured response.
+    vi.useFakeTimers();
+    try {
+      vi.mocked(chrome.identity.getAuthToken).mockReturnValue(
+        new Promise(() => {}) as never, // never settles
+      );
+
+      const pending = dispatchExternalMessage({
+        type: "commentarium.auth.signIn.google",
+      });
+      // Advance past the 60s timeout. Kept well below Chrome's ~5-min
+      // SW lifetime cap so the timer fires before the SW can be killed.
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 1);
+      const result = await pending;
+
+      expect(result).toMatchObject({
+        error: expect.objectContaining({ code: "identity/timeout" }),
+      });
+      expect(signInWithCredential).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("refreshSession", () => {
