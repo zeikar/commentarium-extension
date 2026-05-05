@@ -1,18 +1,35 @@
 import packageJson from "./package.json";
 
 export type ManifestEnv = {
-  VITE_GOOGLE_OAUTH_CLIENT_ID?: string;
   /**
-   * Optional: pin the unpacked-dev extension to a fixed ID by supplying the
-   * extension's RSA public key (base64-encoded SubjectPublicKeyInfo). Used so
-   * that local devs running an unpacked build can talk to the deployed
-   * webapp, which hardcodes the prod extension ID. Production Web Store
-   * publishes leave this unset — the Web Store assigns the ID.
+   * Web-application OAuth client_id used by chrome.identity.launchWebAuthFlow.
+   * NOT the legacy "Chrome App" client; that one was tied to the manifest
+   * `oauth2` field (now removed) and has no redirect URI we can use here.
+   * Authorized redirect URI in Google Cloud Console must be exactly
+   * `https://<EXT_ID>.chromiumapp.org/` (trailing slash) to match what
+   * chrome.identity.getRedirectURL() returns.
+   */
+  VITE_GOOGLE_OAUTH_WEB_CLIENT_ID?: string;
+  /**
+   * Optional but strongly recommended for unpacked local dev: pin the
+   * extension to the production ID by supplying its RSA public key
+   * (base64-encoded SubjectPublicKeyInfo). With it set, two things line
+   * up to the prod ID:
+   *   1. chrome.runtime.sendMessage from the deployed webapp, which
+   *      hardcodes the prod EXT_ID, reaches the local SW.
+   *   2. chrome.identity.getRedirectURL() returns the redirect URI
+   *      that's authorized in Google Cloud Console for the shared Web
+   *      OAuth client. Without this, a random local EXT_ID makes Google
+   *      reject the OAuth flow with redirect_uri_mismatch.
+   * Production Web Store publishes leave this unset — the Web Store
+   * assigns the ID.
    */
   VITE_EXTENSION_KEY?: string;
 };
 
-const REQUIRED_KEYS: (keyof ManifestEnv)[] = ["VITE_GOOGLE_OAUTH_CLIENT_ID"];
+const REQUIRED_KEYS: (keyof ManifestEnv)[] = [
+  "VITE_GOOGLE_OAUTH_WEB_CLIENT_ID",
+];
 
 /**
  * After changing, please reload the extension at `chrome://extensions`
@@ -49,10 +66,6 @@ export function buildManifest(
     permissions: ["activeTab", "identity", "storage"],
     externally_connectable: {
       matches: ["https://commentarium.app/*"],
-    },
-    oauth2: {
-      client_id: env.VITE_GOOGLE_OAUTH_CLIENT_ID!,
-      scopes: ["openid", "email", "profile"],
     },
     icons: {
       "32": "commentarium-logo-32.png",

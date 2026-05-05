@@ -120,7 +120,7 @@ incoming message by:
 
 | Op | Returns on success | Implementation |
 |---|---|---|
-| `commentarium.auth.signIn.google` | `{ ok: true, idToken }` | `chrome.identity.getAuthToken` → Firebase `signInWithCredential` → `currentUser.getIdToken()` |
+| `commentarium.auth.signIn.google` | `{ ok: true, idToken }` | `chrome.identity.launchWebAuthFlow` (OAuth implicit `response_type=token` + state check) → parse `access_token` from redirect URL fragment → Firebase `signInWithCredential` → `currentUser.getIdToken()` |
 | `commentarium.auth.signIn.anonymous` | `{ ok: true, idToken }` | `signInAnonymously` → `currentUser.getIdToken()` |
 | `commentarium.auth.refreshSession` | `{ ok: true, idToken }` | `currentUser.getIdToken(true)` (force refresh) |
 | `commentarium.auth.signOut` | `{ ok: true }` | `firebaseSignOut(auth)` + `chrome.identity.clearAllCachedAuthTokens()` |
@@ -147,7 +147,7 @@ Manifest declares exactly three ([manifest.ts](../manifest.ts)):
 | Permission | Used for |
 |---|---|
 | `activeTab` | `chrome.tabs.sendMessage` from the action-click path — dispatching `toggle`/`urlChange` to the active tab's content script |
-| `identity` | `chrome.identity.getAuthToken` for the Google sign-in flow inside the auth broker |
+| `identity` | `chrome.identity.launchWebAuthFlow` (+ `getRedirectURL`, `clearAllCachedAuthTokens`) for the Google sign-in flow inside the auth broker |
 | `storage` | `firebase/auth/web-extension`'s persistence backend — Firebase Auth user state survives SW restart |
 
 No `host_permissions`. The content script's `matches: ["http://*/*", "https://*/*"]` is what grants page access for mounting the panel — `file://`, `ftp://`, and other non-web schemes are intentionally out of scope. The SW itself never makes cross-origin HTTP requests now that auth is broker-mediated. The browser writes the partitioned session cookie via `Set-Cookie: ...; Partitioned` from `commentarium.app`'s server.

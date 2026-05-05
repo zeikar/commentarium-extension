@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { dispatchExternalMessage } from "../../../test-utils/vitest.setup";
+import {
+  STUB_OAUTH,
+  dispatchExternalMessage,
+} from "../../../test-utils/vitest.setup";
 import {
   GoogleAuthProvider,
   signInAnonymously,
@@ -129,7 +132,23 @@ describe("signIn.anonymous", () => {
 });
 
 describe("signIn.google", () => {
-  it("uses chrome.identity, signs in via Firebase credential, returns { ok, idToken } with no cookie/network side-effects", async () => {
+  // Helper: build a redirect URL that echoes the inbound `state` so the
+  // state check passes before exercising the field under test.
+  function echoStateRedirect(
+    fragmentExtras: Record<string, string>,
+  ): (details: { url: string }) => Promise<string> {
+    return async (details) => {
+      const inboundState =
+        new URL(details.url).searchParams.get("state") ?? "";
+      const fragment = new URLSearchParams({
+        ...fragmentExtras,
+        state: inboundState,
+      });
+      return `${STUB_OAUTH.redirectURI}#${fragment}`;
+    };
+  }
+
+  it("happy path: drives launchWebAuthFlow, signs in via Firebase credential, returns { ok, idToken } with no cookie/network side-effects", async () => {
     const firebase = await import("./firebase");
     const getIdToken = vi.fn().mockResolvedValue("google-id-token");
     (firebase.auth as { currentUser: unknown }).currentUser = null;
@@ -144,10 +163,6 @@ describe("signIn.google", () => {
       };
       return { user: { uid: "google-uid" } } as never;
     });
-    vi.mocked(chrome.identity.getAuthToken).mockResolvedValue({
-      token: "google-access-token",
-      grantedScopes: ["openid", "email", "profile"],
-    } as never);
 
     const fetchSpy = vi.fn(() => {
       throw new Error("SW must not call fetch under the CHIPS contract");
@@ -159,12 +174,26 @@ describe("signIn.google", () => {
     });
 
     expect(result).toEqual({ ok: true, idToken: "google-id-token" });
-    expect(chrome.identity.getAuthToken).toHaveBeenCalledWith({
-      interactive: true,
-    });
+    expect(chrome.identity.launchWebAuthFlow).toHaveBeenCalledWith(
+      expect.objectContaining({ interactive: true }),
+    );
+    // Inspect the URL passed to launchWebAuthFlow: must carry the OAuth
+    // params we depend on (response_type=token keeps the access-token
+    // path; prompt=select_account is what now drives the chooser).
+    const launchArgs = vi.mocked(chrome.identity.launchWebAuthFlow).mock
+      .calls[0][0] as { url: string };
+    const launchUrl = new URL(launchArgs.url);
+    expect(launchUrl.searchParams.get("response_type")).toBe("token");
+    expect(launchUrl.searchParams.get("prompt")).toBe("select_account");
+    expect(launchUrl.searchParams.get("scope")).toBe("openid email profile");
+    expect(launchUrl.searchParams.get("redirect_uri")).toBe(
+      STUB_OAUTH.redirectURI,
+    );
+    expect(launchUrl.searchParams.get("state")).toBeTruthy();
+
     expect(GoogleAuthProvider.credential).toHaveBeenCalledWith(
       null,
-      "google-access-token",
+      STUB_OAUTH.accessToken,
     );
     expect(signInWithCredential).toHaveBeenCalledOnce();
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -172,48 +201,103 @@ describe("signIn.google", () => {
     expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
 
-  it("surfaces identity/no-token when chrome.identity.getAuthToken returns no token", async () => {
-    vi.mocked(chrome.identity.getAuthToken).mockResolvedValue({
-      token: undefined,
-      grantedScopes: [],
-    } as never);
+  it("maps launchWebAuthFlow rejection (window closed) to auth/popup-closed-by-user", async () => {
+    vi.mocked(chrome.identity.launchWebAuthFlow).mockRejectedValueOnce(
+      new Error("The user did not approve access."),
+    );
 
     const result = await dispatchExternalMessage({
       type: "commentarium.auth.signIn.google",
     });
 
     expect(result).toMatchObject({
-      error: expect.objectContaining({ code: "identity/no-token" }),
+      error: expect.objectContaining({ code: "auth/popup-closed-by-user" }),
     });
     expect(signInWithCredential).not.toHaveBeenCalled();
   });
 
-  it("times out with identity/timeout when getAuthToken never resolves (cancel-callback drop)", async () => {
-    // Why this matters: when the user closes the OAuth chooser without
-    // selecting, Chrome occasionally never fires the callback. Without a
-    // timeout, the SW would idle out and the iframe would see a generic
-    // "channel closed" error rather than a structured response.
-    vi.useFakeTimers();
-    try {
-      vi.mocked(chrome.identity.getAuthToken).mockReturnValue(
-        new Promise(() => {}) as never, // never settles
-      );
+  it("maps fragment error=access_denied to auth/popup-closed-by-user", async () => {
+    vi.mocked(chrome.identity.launchWebAuthFlow).mockImplementationOnce(
+      echoStateRedirect({ error: "access_denied" }),
+    );
 
-      const pending = dispatchExternalMessage({
-        type: "commentarium.auth.signIn.google",
-      });
-      // Advance past the 60s timeout. Kept well below Chrome's ~5-min
-      // SW lifetime cap so the timer fires before the SW can be killed.
-      await vi.advanceTimersByTimeAsync(60 * 1000 + 1);
-      const result = await pending;
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.signIn.google",
+    });
 
-      expect(result).toMatchObject({
-        error: expect.objectContaining({ code: "identity/timeout" }),
-      });
-      expect(signInWithCredential).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(result).toMatchObject({
+      error: expect.objectContaining({ code: "auth/popup-closed-by-user" }),
+    });
+    expect(signInWithCredential).not.toHaveBeenCalled();
+  });
+
+  it("maps fragment error=invalid_request to identity/oauth-error", async () => {
+    vi.mocked(chrome.identity.launchWebAuthFlow).mockImplementationOnce(
+      echoStateRedirect({
+        error: "invalid_request",
+        error_description: "bad request",
+      }),
+    );
+
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.signIn.google",
+    });
+
+    expect(result).toMatchObject({
+      error: expect.objectContaining({ code: "identity/oauth-error" }),
+    });
+    expect(signInWithCredential).not.toHaveBeenCalled();
+  });
+
+  it("returns identity/state-mismatch when the redirect echoes a different state (CSRF guard)", async () => {
+    // Use a fixed state value that the SW's crypto.randomUUID() will not
+    // collide with. signInWithCredential must not run.
+    vi.mocked(chrome.identity.launchWebAuthFlow).mockResolvedValueOnce(
+      `${STUB_OAUTH.redirectURI}#access_token=any&state=00000000-0000-4000-8000-000000000000` as never,
+    );
+
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.signIn.google",
+    });
+
+    expect(result).toMatchObject({
+      error: expect.objectContaining({ code: "identity/state-mismatch" }),
+    });
+    expect(signInWithCredential).not.toHaveBeenCalled();
+  });
+
+  it("returns identity/no-access-token when the fragment is missing access_token", async () => {
+    vi.mocked(chrome.identity.launchWebAuthFlow).mockImplementationOnce(
+      echoStateRedirect({}),
+    );
+
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.signIn.google",
+    });
+
+    expect(result).toMatchObject({
+      error: expect.objectContaining({ code: "identity/no-access-token" }),
+    });
+    expect(signInWithCredential).not.toHaveBeenCalled();
+  });
+
+  it("returns identity/invalid-redirect-url when the redirect URL cannot be parsed", async () => {
+    // "http://[::1" is an unmistakably invalid URL the WHATWG URL
+    // constructor rejects (unterminated IPv6 host).
+    vi.mocked(chrome.identity.launchWebAuthFlow).mockResolvedValueOnce(
+      "http://[::1" as never,
+    );
+
+    const result = await dispatchExternalMessage({
+      type: "commentarium.auth.signIn.google",
+    });
+
+    expect(result).toMatchObject({
+      error: expect.objectContaining({
+        code: "identity/invalid-redirect-url",
+      }),
+    });
+    expect(signInWithCredential).not.toHaveBeenCalled();
   });
 });
 

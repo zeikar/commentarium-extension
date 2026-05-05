@@ -56,13 +56,32 @@ const cookiesGetPartitionKey = vi.fn(
   }),
 );
 
-// chrome.identity.* (new) — Promise overload returns GetAuthTokenResult,
-// not a bare string. The string is the (legacy) callback-API form.
-const identityGetAuthToken = vi.fn(async (_details: unknown) => ({
-  token: "stub-google-access-token",
-  grantedScopes: ["openid", "email", "profile"],
-}));
+// chrome.identity.* — launchWebAuthFlow drives the Google sign-in flow.
+// The default mock echoes the inbound `state` query param into the
+// redirect URL fragment so auth.ts's state check passes; tests override
+// this for state-mismatch / oauth-error / cancel cases.
+export const STUB_OAUTH = {
+  redirectURI: "https://stub-extension-id.chromiumapp.org/",
+  accessToken: "stub-google-access-token",
+};
+const identityLaunchWebAuthFlow = vi.fn(
+  async (details: { url: string; interactive?: boolean }) => {
+    const inboundState =
+      new URL(details.url).searchParams.get("state") ?? "";
+    return `${STUB_OAUTH.redirectURI}#access_token=${STUB_OAUTH.accessToken}&state=${inboundState}&token_type=Bearer&expires_in=3599`;
+  },
+);
+const identityGetRedirectURL = vi.fn(
+  (_path?: string) => STUB_OAUTH.redirectURI,
+);
 const identityClearAllCachedAuthTokens = vi.fn(async () => undefined);
+
+// auth.ts reads VITE_GOOGLE_OAUTH_WEB_CLIENT_ID via import.meta.env at
+// signInGoogleOp call time. Stub once for the whole test run.
+vi.stubEnv(
+  "VITE_GOOGLE_OAUTH_WEB_CLIENT_ID",
+  "stub-web-client-id.apps.googleusercontent.com",
+);
 
 // chrome.storage.local (new) — backed by an in-memory map so per-key writes
 // behave atomically per call (matching real chrome.storage.local semantics).
@@ -80,19 +99,10 @@ const storageLocalRemove = vi.fn(async (keys: string | string[]) => {
   for (const k of arr) storageMap.delete(k);
 });
 
-// chrome.runtime.getPlatformInfo (used by signInGoogleOp's keepalive ping
-// to extend the SW idle timer while interactive OAuth is in flight).
-const runtimeGetPlatformInfo = vi.fn(async () => ({
-  os: "mac" as chrome.runtime.PlatformOs,
-  arch: "x86-64" as chrome.runtime.PlatformArch,
-  nacl_arch: "x86-64" as chrome.runtime.PlatformNaclArch,
-}));
-
 (globalThis as unknown as { chrome: unknown }).chrome = {
   runtime: {
     onMessage: { addListener: onMessageAddListener, removeListener: onMessageRemoveListener },
     onMessageExternal: { addListener: onMessageExternalAddListener, removeListener: onMessageExternalRemoveListener },
-    getPlatformInfo: runtimeGetPlatformInfo,
   },
   cookies: {
     set: cookiesSet,
@@ -101,7 +111,8 @@ const runtimeGetPlatformInfo = vi.fn(async () => ({
     getPartitionKey: cookiesGetPartitionKey,
   },
   identity: {
-    getAuthToken: identityGetAuthToken,
+    launchWebAuthFlow: identityLaunchWebAuthFlow,
+    getRedirectURL: identityGetRedirectURL,
     clearAllCachedAuthTokens: identityClearAllCachedAuthTokens,
   },
   storage: {
@@ -126,11 +137,14 @@ beforeEach(() => {
     partitionKey: { topLevelSite: "https://example.com", hasCrossSiteAncestor: true },
   });
 
-  identityGetAuthToken.mockClear();
-  identityGetAuthToken.mockResolvedValue({
-    token: "stub-google-access-token",
-    grantedScopes: ["openid", "email", "profile"],
+  identityLaunchWebAuthFlow.mockClear();
+  identityLaunchWebAuthFlow.mockImplementation(async (details) => {
+    const inboundState =
+      new URL(details.url).searchParams.get("state") ?? "";
+    return `${STUB_OAUTH.redirectURI}#access_token=${STUB_OAUTH.accessToken}&state=${inboundState}&token_type=Bearer&expires_in=3599`;
   });
+  identityGetRedirectURL.mockClear();
+  identityGetRedirectURL.mockReturnValue(STUB_OAUTH.redirectURI);
   identityClearAllCachedAuthTokens.mockClear();
 
   storageLocalSet.mockClear();

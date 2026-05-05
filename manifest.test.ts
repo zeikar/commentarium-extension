@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildManifest } from "./manifest";
 
 const baseEnv = {
-  VITE_GOOGLE_OAUTH_CLIENT_ID: "test-client.apps.googleusercontent.com",
+  VITE_GOOGLE_OAUTH_WEB_CLIENT_ID: "test-client.apps.googleusercontent.com",
 };
 
 describe("buildManifest — CHIPS contract", () => {

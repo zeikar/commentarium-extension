@@ -118,55 +118,97 @@ async function signInAnonymousOp(): Promise<AuthResponse> {
   }
 }
 
-// Hard cap on the interactive OAuth flow. Past this we surface a clean
-// timeout error to the iframe so the spinner can stop. Kept well below
-// Chrome's ~5-min MV3 service-worker lifetime cap — at the cap the SW
-// can be killed *before* the timer fires, dropping the response and
-// landing the iframe back in the original "channel closed" failure mode.
-// 60s is plenty for a normal OAuth flow (~15-30s) and short enough that
-// a cancel reads as a clean timeout rather than a hang.
-const SIGN_IN_GOOGLE_TIMEOUT_MS = 60 * 1000;
-
 async function signInGoogleOp(): Promise<AuthResponse> {
-  // Hold the SW alive while interactive auth is pending. Without periodic
-  // chrome.* activity, the 30s idle timeout can close the message channel
-  // before chrome.identity.getAuthToken's callback fires on the cancel
-  // path — the iframe then sees a generic "channel closed" error instead
-  // of a proper response.
-  const keepAlive = setInterval(() => {
-    void chrome.runtime.getPlatformInfo().catch(() => {});
-  }, 20_000);
-  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutTimer = setTimeout(
-      () =>
-        reject({
-          code: "identity/timeout",
-          message:
-            "interactive auth timed out (no response from chooser)",
-        }),
-      SIGN_IN_GOOGLE_TIMEOUT_MS,
-    );
+  // Drive the OAuth implicit flow through launchWebAuthFlow so the SW
+  // gets a deterministic cancel signal: the Promise rejects when the
+  // user closes the OAuth window, and the redirect URL fragment carries
+  // error=access_denied if the provider denies. response_type=token
+  // keeps the existing GoogleAuthProvider.credential(null, accessToken)
+  // call unchanged from the legacy chrome.identity.getAuthToken path.
+  const state = crypto.randomUUID();
+  const params = new URLSearchParams({
+    client_id: import.meta.env.VITE_GOOGLE_OAUTH_WEB_CLIENT_ID,
+    redirect_uri: chrome.identity.getRedirectURL(),
+    response_type: "token",
+    scope: "openid email profile",
+    state,
+    prompt: "select_account",
   });
+
+  let responseUrl: string | undefined;
   try {
-    // The Promise form of chrome.identity.getAuthToken returns a
-    // GetAuthTokenResult object, not a bare string. The string is the legacy
-    // callback-API shape. Extract .token explicitly.
-    // Race against the timeout so a Chrome quirk that drops the cancel
-    // callback can't leave the request hanging.
-    const tokenResult = await Promise.race([
-      chrome.identity.getAuthToken({ interactive: true }),
-      timeoutPromise,
-    ]);
-    const accessToken = tokenResult?.token;
-    if (!accessToken) {
-      return {
-        error: {
-          code: "identity/no-token",
-          message: "chrome.identity.getAuthToken returned no token",
-        },
-      };
-    }
+    responseUrl = await chrome.identity.launchWebAuthFlow({
+      url: `https://accounts.google.com/o/oauth2/v2/auth?${params}`,
+      interactive: true,
+    });
+  } catch (err) {
+    // Chrome rejects when the user closes the window before redirect.
+    return {
+      error: {
+        code: "auth/popup-closed-by-user",
+        message: err instanceof Error ? err.message : "Sign-in was cancelled.",
+      },
+    };
+  }
+  if (!responseUrl) {
+    return {
+      error: {
+        code: "auth/popup-closed-by-user",
+        message: "Sign-in was cancelled.",
+      },
+    };
+  }
+
+  // Defense at the OAuth boundary: a malformed redirect must not blow
+  // up the SW with an uncaught URL parse exception.
+  let parsed: URL;
+  try {
+    parsed = new URL(responseUrl);
+  } catch {
+    return {
+      error: {
+        code: "identity/invalid-redirect-url",
+        message: "redirect URL from launchWebAuthFlow could not be parsed",
+      },
+    };
+  }
+  const fragment = new URLSearchParams(parsed.hash.slice(1));
+
+  // Verify state first, before reading any other field from the redirect.
+  // Both success and error responses echo state; gating downstream on
+  // this check stops a CSRF response from being smuggled in as a cancel.
+  if (fragment.get("state") !== state) {
+    return {
+      error: {
+        code: "identity/state-mismatch",
+        message: "OAuth state did not match; possible CSRF.",
+      },
+    };
+  }
+
+  const oauthError = fragment.get("error");
+  if (oauthError) {
+    return {
+      error: {
+        code:
+          oauthError === "access_denied"
+            ? "auth/popup-closed-by-user"
+            : "identity/oauth-error",
+        message: fragment.get("error_description") ?? oauthError,
+      },
+    };
+  }
+  const accessToken = fragment.get("access_token");
+  if (!accessToken) {
+    return {
+      error: {
+        code: "identity/no-access-token",
+        message: "no access_token in redirect URL",
+      },
+    };
+  }
+
+  try {
     const credential = GoogleAuthProvider.credential(null, accessToken);
     await signInWithCredential(auth, credential);
     if (!auth.currentUser) {
@@ -181,9 +223,6 @@ async function signInGoogleOp(): Promise<AuthResponse> {
     return { ok: true, idToken };
   } catch (err) {
     return { error: asAuthError(err) };
-  } finally {
-    clearInterval(keepAlive);
-    if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
   }
 }
 
@@ -256,8 +295,11 @@ async function performSignOutCleanup(): Promise<void> {
     bestEffortError = err;
   }
 
-  // Best-effort: clear Chrome's OAuth-token cache so the next signIn.google
-  // shows the chooser. Runs even when firebaseSignOut threw.
+  // Best-effort: clear any legacy chrome.identity.getAuthToken cache.
+  // The current launchWebAuthFlow path forces the chooser via
+  // prompt=select_account in the OAuth URL, so this call is defensive
+  // cleanup of stale state from pre-migration sign-ins. Runs even when
+  // firebaseSignOut threw.
   try {
     await chrome.identity.clearAllCachedAuthTokens();
   } catch (err) {
