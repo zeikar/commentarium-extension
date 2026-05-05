@@ -1,4 +1,8 @@
-export default function Header({ onClick }) {
+interface HeaderProps {
+  onClick: () => void;
+}
+
+export default function Header({ onClick }: HeaderProps) {
   return (
     <div className="commentarium-header">
       <button className="commentarium-close-button" onClick={onClick}>

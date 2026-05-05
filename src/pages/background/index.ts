@@ -13,15 +13,23 @@ reloadOnUpdate("pages/content/style.scss");
 console.log("background loaded");
 
 chrome.action.onClicked.addListener((tab) => {
+  if (typeof tab.id !== "number") return;
   const event = { type: "toggle", url: tab.url };
-  chrome.tabs.sendMessage(tab.id, event);
-  console.log("message sent", event);
+  // Swallow "Receiving end does not exist" — content script is absent on
+  // chrome://, the new tab page, the Web Store, etc. Log only on success
+  // so a real delivery failure isn't masked by a misleading "sent" line.
+  chrome.tabs
+    .sendMessage(tab.id, event)
+    .then(() => console.log("message sent", event))
+    .catch(() => {});
 });
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.url) {
     const event = { type: "urlChange", url: changeInfo.url };
-    chrome.tabs.sendMessage(tabId, event);
-    console.log("message sent", event);
+    chrome.tabs
+      .sendMessage(tabId, event)
+      .then(() => console.log("message sent", event))
+      .catch(() => {});
   }
 });

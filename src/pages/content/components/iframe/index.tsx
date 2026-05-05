@@ -23,7 +23,7 @@ const IFrame: React.FC<IFrameProps> = ({ url }) => {
   }
   return (
     <>
-      {loading ? Loading() : null}
+      {loading ? <Loading /> : null}
       <iframe
         className={"commentarium-iframe-container" + (loading ? " hidden" : "")}
         key={url}

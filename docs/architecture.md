@@ -14,8 +14,8 @@ What the extension actually does. The custom surface is small (background SW + c
                                                         ▼
                                              ┌──────────────────────┐
                                              │  Content script      │
-                                             │  (every page,        │
-                                             │   <all_urls>)        │
+                                             │  (every web page,    │
+                                             │   http(s)://*/*)     │
                                              │                      │
                                              │  ├─ React root       │
                                              │  │   #commentarium-  │
@@ -150,7 +150,7 @@ Manifest declares exactly three ([manifest.ts](../manifest.ts)):
 | `identity` | `chrome.identity.getAuthToken` for the Google sign-in flow inside the auth broker |
 | `storage` | `firebase/auth/web-extension`'s persistence backend — Firebase Auth user state survives SW restart |
 
-No `host_permissions`. The content script's `matches: ["<all_urls>"]` is what grants page access for mounting the panel; the SW itself never makes cross-origin HTTP requests now that auth is broker-mediated. The browser writes the partitioned session cookie via `Set-Cookie: ...; Partitioned` from `commentarium.app`'s server.
+No `host_permissions`. The content script's `matches: ["http://*/*", "https://*/*"]` is what grants page access for mounting the panel — `file://`, `ftp://`, and other non-web schemes are intentionally out of scope. The SW itself never makes cross-origin HTTP requests now that auth is broker-mediated. The browser writes the partitioned session cookie via `Set-Cookie: ...; Partitioned` from `commentarium.app`'s server.
 
 `externally_connectable.matches: ["https://commentarium.app/*"]` is what locks the auth broker channel down to the webapp.
 
