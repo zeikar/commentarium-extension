@@ -42,13 +42,13 @@ The manifest is generated from [manifest.ts](../manifest.ts) by a vite plugin un
 
 ## The sliding panel
 
-[src/pages/content/components/Demo/app.tsx](../src/pages/content/components/Demo/app.tsx) renders:
+[src/pages/content/components/panel/app.tsx](../src/pages/content/components/panel/app.tsx) renders:
 
 - A fixed-position container (`.commentarium-view`) anchored to the right edge of the viewport. Width 400px, full height minus 32px margin. Slides in/out via a CSS `right` transition (`-432px` ↔ `0`) — see [src/pages/content/style.scss](../src/pages/content/style.scss).
 - A close button (`Header`) absolutely positioned over the iframe.
 - The iframe (lazy-mounted on first toggle).
 
-State held in [Demo/app.tsx](../src/pages/content/components/Demo/app.tsx):
+State held in [panel/app.tsx](../src/pages/content/components/panel/app.tsx):
 
 | State | Purpose |
 |---|---|
@@ -59,7 +59,7 @@ State held in [Demo/app.tsx](../src/pages/content/components/Demo/app.tsx):
 
 ### Why the ref?
 
-The `chrome.runtime.onMessage` listener is registered once on mount (`useEffect` with `[]`). If it depended on `shown` directly, every state change would tear down and re-register the listener — and during the transition, in-flight messages could be dropped or double-handled. The ref pattern (mirror state in a ref, read the ref inside the stable callback) keeps registration stable while still seeing fresh values. See [Demo/app.tsx:11-50](../src/pages/content/components/Demo/app.tsx#L11-L50).
+The `chrome.runtime.onMessage` listener is registered once on mount (`useEffect` with `[]`). If it depended on `shown` directly, every state change would tear down and re-register the listener — and during the transition, in-flight messages could be dropped or double-handled. The ref pattern (mirror state in a ref, read the ref inside the stable callback) keeps registration stable while still seeing fresh values. See [panel/app.tsx:11-50](../src/pages/content/components/panel/app.tsx#L11-L50).
 
 ## The iframe wrapper
 
@@ -131,10 +131,10 @@ src/
 │   │   ├── auth.test.ts              # broker handler tests (signIn / refresh / signOut / getIdToken)
 │   │   └── firebase.ts               # Firebase web-extension Auth init
 │   └── content/
-│       ├── index.ts                  # entry: mounts React root, dynamic-imports Demo
+│       ├── index.ts                  # entry: mounts React root, dynamic-imports panel
 │       ├── style.scss                # panel styles (slide animation, layout)
 │       └── components/
-│           ├── Demo/
+│           ├── panel/
 │           │   ├── app.tsx           # panel state + message listener
 │           │   ├── header.tsx        # close button
 │           │   └── index.tsx         # createRoot bootstrap (called via dynamic import)

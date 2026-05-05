@@ -1,7 +1,7 @@
 import { vi, beforeEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
 
-// chrome.runtime.onMessage (existing — kept for the existing Demo/app test)
+// chrome.runtime.onMessage (existing — kept for the existing panel/app test)
 type ChromeMessageListener = (msg: unknown, sender: unknown) => void;
 const messageListeners: ChromeMessageListener[] = [];
 const onMessageAddListener = vi.fn((cb: ChromeMessageListener) => {

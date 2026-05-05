@@ -26,7 +26,7 @@ export default function App() {
 
   // Message listener always references latest state through ref
   const messageListener = useCallback((msg: any, sender: any) => {
-    console.log("content view message received", msg, sender);
+    if (__DEV__) console.log("content view message received", msg, sender);
     if (msg.type === "toggle") {
       updatePage(msg.url);
     } else if (msg.type === "urlChange") {
@@ -38,7 +38,7 @@ export default function App() {
   }, []); // Empty dependency array
 
   useEffect(() => {
-    console.log("content view loaded");
+    if (__DEV__) console.log("content view loaded");
 
     // Register the event listener only once
     chrome.runtime.onMessage.addListener(messageListener);

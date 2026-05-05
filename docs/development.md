@@ -39,7 +39,7 @@ The boilerplate's reload system (under `utils/reload/`) covers most of the custo
 
 | Change | Reload behavior |
 |---|---|
-| Edit a content-script React component (e.g. `Demo/app.tsx`) | Auto-refresh: the page reloads and the new code mounts. |
+| Edit a content-script React component (e.g. `panel/app.tsx`) | Auto-refresh: the page reloads and the new code mounts. |
 | Edit `content/style.scss` | Auto-reload — but the CSS filename is fingerprinted (`contentStyle<KEY>.chunk.css`), so the manifest is also rebuilt and the extension reloads. |
 | Edit `background/index.ts` | The service worker reloads. Existing tabs keep their old content script — to test, reload the tab. |
 | Edit `manifest.ts` | **Manual**: go to `chrome://extensions` and click the reload icon on the extension. The manifest itself can't hot-reload. |
@@ -67,7 +67,7 @@ Use these in imports rather than relative `../../../` chains.
 Chrome extensions don't load content scripts as ES modules. The workaround is in [src/pages/content/index.ts](../src/pages/content/index.ts):
 
 ```ts
-import("./components/Demo");  // dynamic import — bundled into a single chunk
+import("./components/panel");  // dynamic import — bundled into a single chunk
 ```
 
 If you split the React entry into multiple top-level chunks, the dynamic-import boundary is also where vite splits — keep the entry as a single dynamic import.
@@ -86,7 +86,7 @@ npm run test:watch    # vitest watch mode
 Vitest 4 + jsdom + `@testing-library/react`. The chrome-runtime mock lives in [test-utils/vitest.setup.ts](../test-utils/vitest.setup.ts) — it stubs `chrome.runtime.onMessage.{addListener, removeListener}` and `chrome.runtime.onMessageExternal.{addListener, removeListener}` with `vi.fn()` spies, plus mocks for `chrome.identity` and `chrome.storage.local` (and `chrome.cookies.*`, kept around as regression guards even though no production code path uses them anymore). Helpers `dispatchChromeMessage(msg, sender)` and `dispatchExternalMessage(msg, sender)` synthesize runtime messages into the captured listeners. Extend this file (don't recreate the chrome global per test) when you need broader chrome surface.
 
 Coverage today:
-- [Demo/app.test.tsx](../src/pages/content/components/Demo/app.test.tsx) pins core rule #6 from CLAUDE.md (the panel's message listener registers exactly once and doesn't re-register on `shown` toggles).
+- [panel/app.test.tsx](../src/pages/content/components/panel/app.test.tsx) pins core rule #6 from CLAUDE.md (the panel's message listener registers exactly once and doesn't re-register on `shown` toggles).
 - [auth.test.ts](../src/pages/background/auth.test.ts) covers every broker op: sign-in (Google + anonymous), refresh-session (happy + user-gone + best-effort cleanup), sign-out (with seeded `partitionRegistry:` red guard so a regression that re-introduces the cookie path fails loudly), and the handoff `getIdToken`. Plus the sender-gate suite — origin / namespace prefix / `pathAllowedForType` / one-listener invariant.
 - [manifest.test.ts](../manifest.test.ts) pins the manifest's CHIPS-contract shape: no hardcoded `key`, env-driven key when `VITE_EXTENSION_KEY` is set, no `host_permissions`, no `cookies` permission, exact `permissions` triplet, `minimum_chrome_version: "114"`, `externally_connectable` pinned to `commentarium.app/*`.
 
