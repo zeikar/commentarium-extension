@@ -12,7 +12,7 @@ Chrome Web Store: [chromewebstore.google.com/detail/hogjejflnephnomijedgfocipidn
 
 ```bash
 npm install
-cp .env.example .env.local        # fill in Firebase web SDK config + Chrome OAuth client_id
+cp .env.example .env.local        # fill in Firebase web SDK config + Web OAuth client_id
 npm run dev                       # build to dist/ in watch mode + HMR reload server
 # → Chrome → chrome://extensions → enable Developer mode → Load unpacked → select dist/
 ```
@@ -33,9 +33,12 @@ Permissions: `activeTab`, `identity`, `storage`. No host permissions. Min Chrome
 
 ## Docs
 
-- [docs/architecture.md](docs/architecture.md) — messaging, panel lifecycle, iframe wrapper, auth broker contract
+- [docs/architecture.md](docs/architecture.md) — messaging, panel lifecycle, iframe wrapper
+- [docs/auth.md](docs/auth.md) — auth broker contract: sender gating, op surface, Google sign-in flow, error codes, Cloud Console setup, `VITE_EXTENSION_KEY` dual role
 - [docs/development.md](docs/development.md) — build, load-unpacked, HMR caveats, release build, tests
-- Background reading: [Chrome Extension Iframe Auth: From chrome.cookies to CHIPS](https://zeikar.github.io/blog/from-chrome-cookies-to-chips/) — how the auth broker design landed where it did
+- Background reading:
+  - [From chrome.cookies to CHIPS](https://zeikar.github.io/blog/from-chrome-cookies-to-chips/) — why the SW vends ID tokens instead of writing cookies itself
+  - [From getAuthToken to launchWebAuthFlow](https://zeikar.github.io/blog/from-getauthtoken-to-launchwebauthflow/) — why the Google sign-in flow uses `launchWebAuthFlow`
 
 Built on [chrome-extension-boilerplate-react-vite](https://github.com/Jonghakseo/chrome-extension-boilerplate-react-vite).
 

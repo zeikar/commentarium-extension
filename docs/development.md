@@ -11,7 +11,7 @@ cp .env.example .env.local
 # use placeholder strings if you only need to verify build / test
 ```
 
-`npm run build` calls `buildManifest(env)` from [manifest.ts](../manifest.ts), which throws if `VITE_GOOGLE_OAUTH_WEB_CLIENT_ID` is missing. The four `VITE_FIREBASE_*` keys are validated at SW startup by [firebase.ts](../src/pages/background/firebase.ts) — placeholder strings are fine for build/test, but real values are needed for the loaded extension to actually authenticate against `commentarium.app`. `.env.local` is gitignored; CI sets placeholders in [build-zip.yml](../.github/workflows/build-zip.yml).
+`npm run build` calls `buildManifest(env)` from [manifest.ts](../manifest.ts), which throws if `VITE_GOOGLE_OAUTH_WEB_CLIENT_ID` is missing. The four `VITE_FIREBASE_*` keys are validated at SW startup by [firebase.ts](../src/pages/background/firebase.ts). Placeholder strings work for typecheck / build / test only — any artifact you intend to load or publish needs the real values, or Google sign-in fails at runtime (`redirect_uri_mismatch` from Cloud Console, `auth/invalid-api-key` from Firebase). `.env.local` is gitignored; CI sources these public config values from repo Variables (see [build-zip.yml](../.github/workflows/build-zip.yml)).
 
 Node 22 is required (`package.json` pins `engines.node = ">=22"`); CI runs on Node 22 to match.
 

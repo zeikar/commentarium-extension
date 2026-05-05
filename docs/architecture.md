@@ -93,52 +93,16 @@ Two message types, both fire-and-forget (no response expected).
 
 ## Auth broker (service worker)
 
-A second message channel runs alongside the toggle/urlChange relay above:
-the iframe (running on `commentarium.app`) talks to the SW via
-`chrome.runtime.sendMessage(EXT_ID, …)` to authenticate. This is the
-**`onMessageExternal` channel** — different API, different listener,
-different sender semantics from the `onMessage` relay above.
+A second message channel runs alongside the toggle/urlChange relay above. The iframe (running on `commentarium.app`) talks to the SW via `chrome.runtime.sendMessage(EXT_ID, …)` to authenticate. This is the **`onMessageExternal` channel** — different API, different listener, different sender semantics from the `onMessage` relay above.
 
-The SW is a *thin token vendor*: it holds Firebase Auth state via the
-[`firebase/auth/web-extension`](https://firebase.google.com/docs/auth/web/manage-users#web-extension)
-build and hands out ID tokens. It does **not** write cookies and does
-**not** call `/api/login`. The iframe (1st-party `commentarium.app`
-context, even when embedded) does that itself, and the server writes the
-partitioned (CHIPS) session cookie via
-`Set-Cookie: session=…; Partitioned; SameSite=None; Secure; HttpOnly`.
+The SW is a *thin token vendor*: it holds Firebase Auth state via the [`firebase/auth/web-extension`](https://firebase.google.com/docs/auth/web/manage-users#web-extension) build and hands out ID tokens. It does **not** write cookies and does **not** call `/api/login` — the iframe (1st-party `commentarium.app` context, even when embedded) does that itself, and the server writes the partitioned (CHIPS) session cookie.
 
-[src/pages/background/auth.ts](../src/pages/background/auth.ts) registers
-a single `chrome.runtime.onMessageExternal` listener gated on every
-incoming message by:
+The full broker contract — sender gating, op surface, Google sign-in flow (`launchWebAuthFlow` + state check + error code taxonomy), sign-out cleanup contract, Cloud Console setup, and the `VITE_EXTENSION_KEY` dual-role caveat — lives in [docs/auth.md](auth.md).
 
-- `sender.origin === "https://commentarium.app"`
-- `sender.url` matches one of two paths:
-  - `/comments?…&surface=extension` — the iframe; accepts the four
-    sign-in / refresh / sign-out ops
-  - `/auth/handoff` — the 1st-party handoff page; accepts only `getIdToken`
-- `type` starts with the `commentarium.auth.` namespace
+For the design rationale, see the two posts:
 
-| Op | Returns on success | Implementation |
-|---|---|---|
-| `commentarium.auth.signIn.google` | `{ ok: true, idToken }` | `chrome.identity.launchWebAuthFlow` (OAuth implicit `response_type=token` + state check) → parse `access_token` from redirect URL fragment → Firebase `signInWithCredential` → `currentUser.getIdToken()` |
-| `commentarium.auth.signIn.anonymous` | `{ ok: true, idToken }` | `signInAnonymously` → `currentUser.getIdToken()` |
-| `commentarium.auth.refreshSession` | `{ ok: true, idToken }` | `currentUser.getIdToken(true)` (force refresh) |
-| `commentarium.auth.signOut` | `{ ok: true }` | `firebaseSignOut(auth)` + `chrome.identity.clearAllCachedAuthTokens()` |
-| `commentarium.auth.getIdToken` | `{ idToken }` | `currentUser.getIdToken(true)` (handoff page only) |
-
-Failure path always returns `{ error: { code, message }, signedOut?: true }`.
-The `signedOut: true` arm tells the webapp to flip its UI to signed-out;
-on `refreshSession`, this fires when `auth.currentUser` is gone or
-`getIdToken(true)` rejects (e.g. the user was deleted server-side).
-
-Cleanup on the signed-out path runs through
-`performSignOutCleanupBestEffort` so a transient throw inside Firebase
-sign-out or `chrome.identity.clearAllCachedAuthTokens` cannot suppress
-the `signedOut: true` signal — without that wrapper, the iframe could
-stay "signed-in" client-side until the next 401 round-trip.
-
-For the design rationale (and why this isn't `chrome.cookies`-driven anymore), see
-[Chrome Extension Iframe Auth: From chrome.cookies to CHIPS](https://zeikar.github.io/blog/from-chrome-cookies-to-chips/).
+- [From chrome.cookies to CHIPS](https://zeikar.github.io/blog/from-chrome-cookies-to-chips/) — why the SW vends ID tokens instead of writing cookies itself.
+- [From getAuthToken to launchWebAuthFlow](https://zeikar.github.io/blog/from-getauthtoken-to-launchwebauthflow/) — why the Google sign-in flow uses `launchWebAuthFlow` for reliable cancel detection.
 
 ## Permissions
 
@@ -147,7 +111,7 @@ Manifest declares exactly three ([manifest.ts](../manifest.ts)):
 | Permission | Used for |
 |---|---|
 | `activeTab` | `chrome.tabs.sendMessage` from the action-click path — dispatching `toggle`/`urlChange` to the active tab's content script |
-| `identity` | `chrome.identity.launchWebAuthFlow` (+ `getRedirectURL`, `clearAllCachedAuthTokens`) for the Google sign-in flow inside the auth broker |
+| `identity` | `chrome.identity.launchWebAuthFlow` (+ `getRedirectURL`, `clearAllCachedAuthTokens`) for the Google sign-in flow — see [docs/auth.md](auth.md) |
 | `storage` | `firebase/auth/web-extension`'s persistence backend — Firebase Auth user state survives SW restart |
 
 No `host_permissions`. The content script's `matches: ["http://*/*", "https://*/*"]` is what grants page access for mounting the panel — `file://`, `ftp://`, and other non-web schemes are intentionally out of scope. The SW itself never makes cross-origin HTTP requests now that auth is broker-mediated. The browser writes the partitioned session cookie via `Set-Cookie: ...; Partitioned` from `commentarium.app`'s server.
