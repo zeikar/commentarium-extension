@@ -37,8 +37,8 @@ Permissions: `activeTab`, `identity`, `storage`. No host permissions. Min Chrome
 - [docs/auth.md](docs/auth.md) — auth broker contract: sender gating, op surface, Google sign-in flow, error codes, Cloud Console setup, `VITE_EXTENSION_KEY` dual role
 - [docs/development.md](docs/development.md) — build, load-unpacked, HMR caveats, release build, tests
 - Background reading:
-  - [From chrome.cookies to CHIPS](https://zeikar.github.io/blog/from-chrome-cookies-to-chips/) — why the SW vends ID tokens instead of writing cookies itself
-  - [From getAuthToken to launchWebAuthFlow](https://zeikar.github.io/blog/from-getauthtoken-to-launchwebauthflow/) — why the Google sign-in flow uses `launchWebAuthFlow`
+  - [From chrome.cookies to CHIPS](https://zeikar.dev/blog/from-chrome-cookies-to-chips/) — why the SW vends ID tokens instead of writing cookies itself
+  - [From getAuthToken to launchWebAuthFlow](https://zeikar.dev/blog/from-getauthtoken-to-launchwebauthflow/) — why the Google sign-in flow uses `launchWebAuthFlow`
 
 Built on [chrome-extension-boilerplate-react-vite](https://github.com/Jonghakseo/chrome-extension-boilerplate-react-vite).
 

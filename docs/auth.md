@@ -41,7 +41,7 @@ The `signedOut: true` arm only appears on the `refreshSession` error path — wh
 
 ## Google sign-in flow
 
-The flow uses `chrome.identity.launchWebAuthFlow` with the OAuth 2.0 implicit grant (`response_type=token`). See [From getAuthToken to launchWebAuthFlow](https://zeikar.github.io/blog/from-getauthtoken-to-launchwebauthflow/) for why this primitive replaced `chrome.identity.getAuthToken`.
+The flow uses `chrome.identity.launchWebAuthFlow` with the OAuth 2.0 implicit grant (`response_type=token`). See [From getAuthToken to launchWebAuthFlow](https://zeikar.dev/blog/from-getauthtoken-to-launchwebauthflow/) for why this primitive replaced `chrome.identity.getAuthToken`.
 
 ```
 1. state = crypto.randomUUID()
@@ -133,5 +133,5 @@ Pinning to the prod public key (via `VITE_EXTENSION_KEY` in `.env.local`) fixes 
 
 ## Background reading
 
-- [Chrome Extension Iframe Auth: From chrome.cookies to CHIPS](https://zeikar.github.io/blog/from-chrome-cookies-to-chips/) — why the SW vends ID tokens instead of writing cookies itself.
-- [Chrome Extension OAuth: From getAuthToken to launchWebAuthFlow](https://zeikar.github.io/blog/from-getauthtoken-to-launchwebauthflow/) — why the Google sign-in flow uses `launchWebAuthFlow` for reliable cancel detection.
+- [Chrome Extension Iframe Auth: From chrome.cookies to CHIPS](https://zeikar.dev/blog/from-chrome-cookies-to-chips/) — why the SW vends ID tokens instead of writing cookies itself.
+- [Chrome Extension OAuth: From getAuthToken to launchWebAuthFlow](https://zeikar.dev/blog/from-getauthtoken-to-launchwebauthflow/) — why the Google sign-in flow uses `launchWebAuthFlow` for reliable cancel detection.

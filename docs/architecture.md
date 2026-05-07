@@ -101,8 +101,8 @@ The full broker contract — sender gating, op surface, Google sign-in flow (`la
 
 For the design rationale, see the two posts:
 
-- [From chrome.cookies to CHIPS](https://zeikar.github.io/blog/from-chrome-cookies-to-chips/) — why the SW vends ID tokens instead of writing cookies itself.
-- [From getAuthToken to launchWebAuthFlow](https://zeikar.github.io/blog/from-getauthtoken-to-launchwebauthflow/) — why the Google sign-in flow uses `launchWebAuthFlow` for reliable cancel detection.
+- [From chrome.cookies to CHIPS](https://zeikar.dev/blog/from-chrome-cookies-to-chips/) — why the SW vends ID tokens instead of writing cookies itself.
+- [From getAuthToken to launchWebAuthFlow](https://zeikar.dev/blog/from-getauthtoken-to-launchwebauthflow/) — why the Google sign-in flow uses `launchWebAuthFlow` for reliable cancel detection.
 
 ## Permissions
 
