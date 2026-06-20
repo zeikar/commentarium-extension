@@ -21,3 +21,6 @@ public/manifest.json
 
 # git worktrees (used by superpowers skills for isolated workspaces)
 /.worktrees
+
+# local agent workflow artifacts (plans, reviews, research)
+/.hyperclaude
