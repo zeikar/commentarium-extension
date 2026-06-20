@@ -1,6 +1,18 @@
 import { vi, beforeEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
 
+// jsdom (25.x) implements neither PointerEvent nor element pointer-capture.
+// Stub the capture methods as no-ops so usePointerDrag's setPointerCapture call
+// does not throw under jsdom; interaction tests drive the gesture by dispatching
+// MouseEvents typed as pointer events (which still carry clientX/clientY/button).
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = function () {};
+  Element.prototype.releasePointerCapture = function () {};
+  Element.prototype.hasPointerCapture = function () {
+    return false;
+  };
+}
+
 // chrome.runtime.onMessage (existing — kept for the existing panel/app test)
 type ChromeMessageListener = (msg: unknown, sender: unknown) => void;
 const messageListeners: ChromeMessageListener[] = [];
