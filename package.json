@@ -15,7 +15,8 @@
     "wss": "node utils/reload/initReloadServer.js",
     "dev": "npm run build:hmr && (run-p wss build:watch)",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "postversion": "git push --follow-tags"
   },
   "type": "module",
   "engines": {

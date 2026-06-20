@@ -94,6 +94,14 @@ For end-to-end behavior beyond what the tests cover, use the dev-load-unpacked f
 
 ## Releases
 
-No automated release pipeline is checked in. To ship: bump `version` in [package.json](../package.json) (it's read by [manifest.ts](../manifest.ts)), run **`npm run build:release`**, and zip the contents of `dist/` for upload to the Chrome Web Store.
+Cutting a release is one command:
 
-`build:release` (not plain `build`) is what the Web Store artifact must go through — it scrubs `VITE_EXTENSION_KEY` via `cross-env` so a dev's `.env.local` cannot accidentally bake the unpacked-dev key into the released manifest. CI's artifact job is wired the same way (see [.github/workflows/build-zip.yml](../.github/workflows/build-zip.yml)).
+```bash
+npm version patch   # bumps package.json, commits, tags vX.Y.Z, and (postversion) pushes with --follow-tags
+```
+
+`npm version` keeps `package.json` (read by [manifest.ts](../manifest.ts)) and the git tag atomically in sync. The `postversion` script pushes the commit and tag; the `v*` tag push then drives [.github/workflows/build-zip.yml](../.github/workflows/build-zip.yml), which runs `build:release` + `npm test` and — only on a tag — publishes a GitHub Release with auto-generated notes and the zipped `dist/` attached.
+
+The one remaining manual step is uploading that zip to the Chrome Web Store (no auto-publish; that would require storing CWS API credentials). Grab it from the GitHub Release assets or rebuild locally.
+
+`build:release` (not plain `build`) is what the Web Store artifact must go through — it scrubs `VITE_EXTENSION_KEY` via `cross-env` so a dev's `.env.local` cannot accidentally bake the unpacked-dev key into the released manifest.

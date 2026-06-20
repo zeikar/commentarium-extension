@@ -3,6 +3,7 @@ name: Build And Upload Extension Zip Via Artifact
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]          # tag push (e.g. v0.3.3 from `npm version`) publishes a GitHub Release
   pull_request:
   workflow_dispatch:
 
@@ -10,6 +11,9 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write        # required for the tag-triggered `gh release create` step below
 
     env:
       # Sourced from repo Variables (Settings → Secrets and variables → Actions
@@ -45,3 +49,17 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           path: dist/*
+
+      # Tag push only: zip the just-built (and tested) dist and publish a GitHub
+      # Release with auto-generated notes from commits since the previous tag.
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          (cd dist && zip -rq "../commentarium-${version}.zip" .)
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            "commentarium-${version}.zip"
