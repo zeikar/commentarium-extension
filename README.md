@@ -19,6 +19,8 @@ npm run dev                       # build to dist/ in watch mode + HMR reload se
 
 `npm run build:release` produces the zip you upload to the Chrome Web Store (scrubs the dev `key` field via `cross-env`).
 
+To cut a release: `npm version patch` — it tags the commit, and CI builds + publishes a GitHub Release with the zip attached. See [docs/development.md](docs/development.md#releases).
+
 ## Architecture at a glance
 
 Three small custom surfaces; everything else is boilerplate.
