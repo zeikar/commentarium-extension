@@ -74,3 +74,30 @@ export function parseStoredRect(raw: unknown): PanelRect | null {
 export function rectsEqual(a: PanelRect, b: PanelRect): boolean {
   return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 }
+
+/** Read the persisted rect from storage; resolves to null on missing or malformed data. */
+export async function readStoredRect(): Promise<PanelRect | null> {
+  try {
+    const items = await chrome.storage.local.get(STORAGE_KEY);
+    return parseStoredRect(items[STORAGE_KEY]);
+  } catch (e) {
+    if (__DEV__) console.log("[geometry] readStoredRect failed", e);
+    return null;
+  }
+}
+
+/** Write rect to storage immediately. Quota/runtime failures are dev-logged only. */
+export function writeRect(rect: PanelRect): void {
+  chrome.storage.local.set({ [STORAGE_KEY]: rect }).catch((e) => {
+    if (__DEV__) console.log("[geometry] writeRect failed", e);
+  });
+}
+
+const DEBOUNCE_MS = 300;
+let _debounceHandle: ReturnType<typeof setTimeout> | undefined;
+
+/** Coalescing write — for rapid calls (e.g. window-resize re-clamp), only the last rect wins. */
+export function writeRectDebounced(rect: PanelRect): void {
+  clearTimeout(_debounceHandle);
+  _debounceHandle = setTimeout(() => writeRect(rect), DEBOUNCE_MS);
+}

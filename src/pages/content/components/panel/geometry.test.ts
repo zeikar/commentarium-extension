@@ -1,13 +1,17 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, type Mock } from "vitest";
 import {
   MIN_W,
   MIN_H,
   MARGIN,
+  STORAGE_KEY,
   clampRect,
   defaultRect,
   rectToTransform,
   parseStoredRect,
   rectsEqual,
+  readStoredRect,
+  writeRect,
+  writeRectDebounced,
 } from "./geometry";
 
 describe("defaultRect", () => {
@@ -142,5 +146,53 @@ describe("rectsEqual", () => {
 
   it("returns false when h differs", () => {
     expect(rectsEqual({ x: 1, y: 2, w: 3, h: 4 }, { x: 1, y: 2, w: 3, h: 9 })).toBe(false);
+  });
+});
+
+describe("readStoredRect", () => {
+  it("returns stored rect after a prior set", async () => {
+    const rect = { x: 10, y: 20, w: 300, h: 500 };
+    await chrome.storage.local.set({ [STORAGE_KEY]: rect });
+    const result = await readStoredRect();
+    expect(result).toEqual(rect);
+  });
+
+  it("returns null when nothing is stored", async () => {
+    const result = await readStoredRect();
+    expect(result).toBeNull();
+  });
+
+  it("returns null when the stored value is malformed", async () => {
+    await chrome.storage.local.set({ [STORAGE_KEY]: { x: "bad", y: 20, w: 300, h: 500 } });
+    const result = await readStoredRect();
+    expect(result).toBeNull();
+  });
+});
+
+describe("writeRect", () => {
+  it("calls chrome.storage.local.set once with the correct shape", () => {
+    const rect = { x: 5, y: 10, w: 400, h: 600 };
+    writeRect(rect);
+    expect((chrome.storage.local.set as unknown as Mock)).toHaveBeenCalledTimes(1);
+    expect((chrome.storage.local.set as unknown as Mock)).toHaveBeenCalledWith({ [STORAGE_KEY]: rect });
+  });
+});
+
+describe("writeRectDebounced", () => {
+  it("coalesces rapid calls and writes only the last rect", () => {
+    try {
+      vi.useFakeTimers();
+      const r1 = { x: 1, y: 1, w: 280, h: 200 };
+      const r2 = { x: 2, y: 2, w: 290, h: 210 };
+      const r3 = { x: 3, y: 3, w: 300, h: 220 };
+      writeRectDebounced(r1);
+      writeRectDebounced(r2);
+      writeRectDebounced(r3);
+      vi.advanceTimersByTime(300);
+      expect((chrome.storage.local.set as unknown as Mock)).toHaveBeenCalledTimes(1);
+      expect((chrome.storage.local.set as unknown as Mock)).toHaveBeenCalledWith({ [STORAGE_KEY]: r3 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
