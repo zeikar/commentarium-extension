@@ -1,7 +1,9 @@
 export type PanelRect = { x: number; y: number; w: number; h: number };
 
 export const MIN_W = 280;
-export const MIN_H = 200;
+// Taller floor than width's: the panel is a portrait comment column, so it
+// should not be allowed to shrink to a short, unusable band on resize.
+export const MIN_H = 440;
 export const MARGIN = 16;
 export const STORAGE_KEY = "commentarium.panel.rect";
 

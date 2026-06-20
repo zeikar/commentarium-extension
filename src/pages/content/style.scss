@@ -61,17 +61,51 @@
   animation: spin 0.6s linear infinite;
 }
 
+// Overlay band, NOT a flex child — it reserves no vertical space, so the iframe
+// fills the whole panel (compact). It is click-through except for its controls.
 .commentarium-header {
-  position: relative;
-  height: 40px;
-  flex: 0 0 auto;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  z-index: 2147483647;
+  pointer-events: none;
+}
+
+// Centered grip pill — the visible, grabbable drag affordance.
+.commentarium-drag-handle {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 64px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: move;
+  pointer-events: auto;
+}
+
+.commentarium-drag-handle::before {
+  content: "";
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background-color: rgba(0, 0, 0, 0.18);
+  transition: background-color 0.15s ease;
+}
+
+.commentarium-drag-handle:hover::before {
+  background-color: rgba(0, 0, 0, 0.34);
 }
 
 .commentarium-close-button {
   position: absolute;
   z-index: 2147483647;
   margin: 8px 0 0 8px;
+  pointer-events: auto;
 
   background-color: transparent;
   border: none;
@@ -85,8 +119,26 @@
   position: absolute;
   left: 0;
   bottom: 0;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   cursor: nesw-resize;
   z-index: 2147483647;
+}
+
+// Visible corner grip so the resize affordance is discoverable.
+.commentarium-resize-handle::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  width: 7px;
+  height: 7px;
+  border-left: 2px solid rgba(0, 0, 0, 0.28);
+  border-bottom: 2px solid rgba(0, 0, 0, 0.28);
+  border-bottom-left-radius: 2px;
+  transition: border-color 0.15s ease;
+}
+
+.commentarium-resize-handle:hover::after {
+  border-color: rgba(0, 0, 0, 0.55);
 }

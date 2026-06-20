@@ -116,7 +116,8 @@ describe("App restore-on-mount geometry", () => {
 // wiring + delta math + edge anchoring — NOT real browser pointer capture or the
 // iframe pointer-events shield, which stay manual / e2e.
 describe("App drag/resize interaction", () => {
-  const SEED = { x: 100, y: 100, w: 320, h: 420 };
+  // height stays >= MIN_H so clampRect leaves the seed unchanged on restore
+  const SEED = { x: 100, y: 100, w: 320, h: 460 };
 
   async function mountOpened() {
     const utils = render(<App />);
@@ -168,11 +169,11 @@ describe("App drag/resize interaction", () => {
     const { container, panel } = await mountOpened();
     (chrome.storage.local.set as unknown as Mock).mockClear();
 
-    const header = container.querySelector(
-      ".commentarium-header",
+    const handle = container.querySelector(
+      ".commentarium-drag-handle",
     ) as HTMLElement;
 
-    firePointer(header, "pointerdown", 500, 500);
+    firePointer(handle, "pointerdown", 500, 500);
     // gesture active → the shield class is applied
     expect(panel).toHaveClass("dragging");
 

@@ -175,7 +175,7 @@ export default function App() {
     <div className={className} style={style}>
       <Header
         onClick={() => setShown(false)}
-        onPointerDown={headerDrag.onPointerDown}
+        onDragPointerDown={headerDrag.onPointerDown}
       />
       {iframeRendered && <IFrame url={url} />}
       <div className="commentarium-resize-handle" {...resizeDrag} />

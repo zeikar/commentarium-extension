@@ -1,16 +1,17 @@
 interface HeaderProps {
   onClick: () => void;
-  onPointerDown: React.PointerEventHandler;
+  onDragPointerDown: React.PointerEventHandler;
 }
 
-export default function Header({ onClick, onPointerDown }: HeaderProps) {
+export default function Header({ onClick, onDragPointerDown }: HeaderProps) {
   return (
-    <div className="commentarium-header" onPointerDown={onPointerDown}>
-      <button
-        className="commentarium-close-button"
-        onClick={onClick}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
+    <div className="commentarium-header">
+      <div
+        className="commentarium-drag-handle"
+        onPointerDown={onDragPointerDown}
+        aria-hidden="true"
+      />
+      <button className="commentarium-close-button" onClick={onClick}>
         <svg
           width="30px"
           height="30px"
