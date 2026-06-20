@@ -1,11 +1,16 @@
 interface HeaderProps {
   onClick: () => void;
+  onPointerDown: React.PointerEventHandler;
 }
 
-export default function Header({ onClick }: HeaderProps) {
+export default function Header({ onClick, onPointerDown }: HeaderProps) {
   return (
-    <div className="commentarium-header">
-      <button className="commentarium-close-button" onClick={onClick}>
+    <div className="commentarium-header" onPointerDown={onPointerDown}>
+      <button
+        className="commentarium-close-button"
+        onClick={onClick}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
         <svg
           width="30px"
           height="30px"
