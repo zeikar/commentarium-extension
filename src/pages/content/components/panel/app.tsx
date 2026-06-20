@@ -144,7 +144,11 @@ export default function App() {
         vw,
         vh,
       );
-      applyRect({ x: startRight - sized.w, y: sized.y, w: sized.w, h: sized.h });
+      const w = sized.w;
+      // Anchor the TOP edge: cap height to space below start.y so applyRect's
+      // internal clampRect cannot shift y upward. Only the bottom edge moves.
+      const h = Math.min(sized.h, vh - start.y);
+      applyRect({ x: startRight - w, y: start.y, w, h });
     },
     onEnd: () => {
       setDragging(false);
